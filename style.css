@@ -1,0 +1,991 @@
+/* Braverse Binder -- a single deliberate "vault" theme: black and gold, like a
+   glass display case rather than an adaptive light/dark UI. Foil and gem
+   accents are designed to catch against this dark ground on purpose. */
+:root {
+  --bg: #121009;
+  --surface: #1c1811;
+  --surface-2: #262019;
+  --surface-3: #2f2717;
+  --ink: #f5eedd;
+  --muted: #a89b86;
+  --muted-2: #7d715f;
+  --line: #392f20;
+  --line-soft: #2a2317;
+  --accent: #d4af37;
+  --accent-hi: #f0d27a;
+  --accent-ink: #201804;
+  --accent-soft: #6b5726;
+  --missing: #d9695a;
+  --missing-soft: #3a201c;
+  --owned: #7fbd6b;
+  --owned-soft: #23301c;
+  --focus: #e8c669;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --radius-lg: 18px;
+  --c-red: #e0645a;
+  --c-yellow: #e0aa3a;
+  --c-green: #74b56a;
+  --c-blue: #5f95d6;
+  --c-purple: #a17ed1;
+  --c-black: #7a7060;
+  --c-colorless: #b3a794;
+  --c-pure: #ecd88a;
+  --accent-2: #d99aa0;
+  --accent-2-ink: #f6d9dc;
+  --accent-2-soft: #3a2429;
+
+  /* Layered elevation system -- a soft contact shadow plus a longer, dimmer
+     ambient throw, so raised surfaces read as sitting a real distance above
+     the case floor rather than just outlined. Numbered by how far "up" the
+     surface sits, not by which component uses it. */
+  --e1: 0 1px 2px rgba(0,0,0,0.4), 0 1px 1px rgba(0,0,0,0.3);
+  --e2: 0 1px 2px rgba(0,0,0,0.45), 0 8px 20px -6px rgba(0,0,0,0.55);
+  --e3: 0 2px 4px rgba(0,0,0,0.4), 0 16px 36px -10px rgba(0,0,0,0.6);
+  --e4: 0 4px 10px rgba(0,0,0,0.4), 0 28px 60px -16px rgba(0,0,0,0.65);
+  /* A hairline top highlight, as if light is catching the top bevel of a
+     glass case shelf -- inset shadows layered onto --e2/--e3 on key surfaces. */
+  --sheen-top: inset 0 1px 0 rgba(255,255,255,0.05);
+  --shadow: var(--e2);
+  --ease-out: cubic-bezier(.16,1,.3,1);
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+/* A faint gold/rose glow behind the top of the page and the far corner --
+   the display-case ambiance the color tokens promise but flat color alone
+   doesn't deliver. Fixed and behind everything, so it never interferes
+   with layout or scrolling. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 420px at 50% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
+    radial-gradient(700px 360px at 100% 100%, color-mix(in srgb, var(--accent-2) 7%, transparent), transparent 60%),
+    radial-gradient(600px 300px at 0% 40%, color-mix(in srgb, var(--accent) 4%, transparent), transparent 55%);
+}
+/* A near-invisible grain over the whole case -- the difference between a
+   flat color fill and something with actual material behind the glass.
+   Kept extremely faint (3% opacity) so it reads as texture, not noise. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+#app { position: relative; z-index: 1; }
+
+/* ---------- Scrollbar ---------- */
+::selection { background: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--ink); }
+html { scrollbar-color: var(--surface-3) var(--bg); scrollbar-width: thin; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 999px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-3)); }
+
+h1, h2, h3, .display {
+  font-family: "Baloo 2", "Nunito Sans", sans-serif;
+  font-weight: 700;
+  text-wrap: balance;
+  margin: 0;
+}
+
+.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+button, input, select { font: inherit; color: inherit; }
+
+a { color: var(--accent-ink); }
+
+/* ---------- Layout shell ---------- */
+#app { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  border-bottom: 1px solid var(--line);
+  /* a second, fainter gold hairline just under the main rule -- the thin
+     double-rule of a display-case edge rather than a plain UI divider */
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 20%, transparent), 0 12px 24px -12px rgba(0,0,0,0.5);
+  padding: 16px 16px 12px;
+  margin: 0 -16px 22px;
+}
+
+.topbar-row {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.brand-mark { width: 34px; height: 34px; flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45)); transition: transform 0.3s var(--ease-out); }
+.brand:hover .brand-mark { transform: rotate(-6deg) scale(1.05); }
+
+.brand-text h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: var(--ink);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.brand-text h1 .brand-accent {
+  background: linear-gradient(135deg, var(--accent-hi), var(--accent) 65%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.brand-text .sub { font-size: 0.68rem; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-top: 2px; }
+
+.progress-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.ring-wrap { position: relative; width: 46px; height: 46px; flex: none; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 25%, transparent)); }
+.ring { width: 100%; height: 100%; display: block; }
+#ringFg { transition: stroke-dashoffset 0.5s var(--ease-out); }
+.ring-pct {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.progress-text { text-align: right; }
+.progress-text .num { font-size: 1.05rem; font-weight: 700; }
+.progress-text .num .mono { font-weight: 700; }
+.progress-text .lbl { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.sync-pill {
+  font-size: 0.7rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  box-shadow: var(--e1);
+}
+.sync-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.sync-pill[data-state="saved"] .dot { background: var(--owned); }
+.sync-pill[data-state="saving"] .dot { background: var(--accent); animation: pulse 1s infinite ease-in-out; }
+.sync-pill[data-state="local"] .dot { background: var(--missing); }
+.sync-pill[data-state="viewonly"] .dot { background: var(--muted); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+.couple-pill {
+  font-size: 0.7rem;
+  padding: 3px 9px 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-2-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+  color: var(--accent-2-ink);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+.couple-pill svg { width: 10px; height: 10px; flex: none; }
+
+.controls {
+  max-width: 1180px;
+  margin: 12px auto 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-wrap { position: relative; flex: 1 1 220px; min-width: 160px; }
+.search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); }
+#search {
+  width: 100%;
+  padding: 9px 10px 9px 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--e1), var(--sheen-top);
+  transition: border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+#search::placeholder { color: var(--muted-2); }
+#search:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+#search:focus-visible { outline: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--e1), var(--sheen-top), 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); }
+
+select.filter {
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: var(--e1), var(--sheen-top);
+  transition: border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+select.filter:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+select.filter:focus-visible { outline: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--e1), var(--sheen-top), 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); }
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: var(--e1), var(--sheen-top);
+}
+.seg button {
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 8px 13px;
+  cursor: pointer;
+  border-right: 1px solid var(--line);
+  font-size: 0.85rem;
+  font-weight: 600;
+  position: relative;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+.seg button:last-child { border-right: none; }
+.seg button:hover { background: var(--surface-2); color: var(--ink); }
+.seg button[aria-pressed="true"] {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-soft) 92%, var(--accent-hi) 8%), var(--accent-soft));
+  color: var(--accent-hi);
+  font-weight: 700;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+}
+.seg button[aria-pressed="true"]:hover { background: color-mix(in srgb, var(--accent-soft) 85%, white 15%); }
+.seg button:active { background: color-mix(in srgb, var(--accent-soft) 70%, black 10%); }
+.seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.iconbtn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  box-shadow: var(--e1), var(--sheen-top);
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out), transform 0.15s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+.iconbtn:hover { background: var(--surface-2); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); transform: translateY(-1px); box-shadow: var(--e2), var(--sheen-top); }
+.iconbtn:active { transform: translateY(0) scale(0.98); box-shadow: var(--e1); background: var(--surface); }
+.iconbtn:focus-visible { outline: none; box-shadow: var(--e1), 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent); }
+
+.iconbtn.accent {
+  background: linear-gradient(160deg, var(--accent-hi), var(--accent) 65%);
+  border-color: color-mix(in srgb, var(--accent) 70%, black 10%);
+  color: var(--accent-ink);
+  font-weight: 700;
+  box-shadow: var(--e1), inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.iconbtn.accent:hover { background: linear-gradient(160deg, color-mix(in srgb, var(--accent-hi) 108%, white), var(--accent-hi) 65%); border-color: color-mix(in srgb, var(--accent) 80%, black 5%); box-shadow: var(--e2), 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent), inset 0 1px 0 rgba(255,255,255,0.4); }
+.iconbtn.accent:active { background: color-mix(in srgb, var(--accent) 82%, black 10%); box-shadow: var(--e1); }
+
+/* ---------- Backup modal ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 4, 0.78);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+  animation: modal-fade 0.2s var(--ease-out);
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--e4), var(--sheen-top);
+  width: 100%;
+  max-width: 520px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: modal-pop 0.25s var(--ease-out);
+}
+@keyframes modal-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.modal-head h2 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 1.05rem; color: var(--ink); }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.modal-close:hover { background: var(--surface-2); color: var(--ink); }
+.modal-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.modal-sub { margin: 0; font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+.modal-textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.modal-textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- Groups & sets ---------- */
+.group-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 26px 2px 8px;
+}
+.group-label:first-of-type { margin-top: 8px; }
+
+.set {
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 96%, black 4%) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 11px;
+  box-shadow: var(--e2), var(--sheen-top);
+  overflow: hidden;
+  transition: box-shadow 0.25s var(--ease-out), border-color 0.25s var(--ease-out);
+}
+.set:hover { box-shadow: var(--e3), var(--sheen-top); }
+.set.complete {
+  border-color: color-mix(in srgb, var(--accent-2) 40%, var(--line));
+  box-shadow: var(--e2), var(--sheen-top), 0 0 0 1px color-mix(in srgb, var(--accent-2) 30%, transparent);
+}
+.set.complete:hover { box-shadow: var(--e3), var(--sheen-top), 0 0 0 1px color-mix(in srgb, var(--accent-2) 35%, transparent); }
+
+.set-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+.set-head:hover { background: var(--surface-2); }
+.set-head:active { background: color-mix(in srgb, var(--surface-2) 80%, black 8%); }
+.set-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.chevron { width: 16px; height: 16px; flex: none; color: var(--muted); transition: transform 0.15s ease; }
+.set.open .chevron { transform: rotate(90deg); }
+
+.set-title { font-weight: 700; font-size: 0.98rem; }
+.set-code { color: var(--muted); font-size: 0.76rem; margin-left: 6px; }
+
+.set-complete-badge {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
+  background: color-mix(in srgb, var(--accent-2) 20%, var(--surface));
+  color: var(--accent-2-ink);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 45%, transparent);
+  white-space: nowrap;
+}
+.set-complete-badge svg { width: 9px; height: 9px; flex: none; }
+.set.complete .set-complete-badge { display: inline-flex; }
+
+.set-bar-wrap { flex: 1 1 140px; max-width: 220px; }
+.set-bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.35); }
+.set-bar > span { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--owned) 80%, black 10%), var(--owned)); border-radius: inherit; transition: width 0.35s var(--ease-out); }
+
+.set-count { font-size: 0.8rem; color: var(--muted); white-space: nowrap; min-width: 64px; text-align: right; }
+
+.set-actions { display: flex; gap: 6px; flex: none; }
+.set-actions button {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.set-actions button:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; transform: translateY(-1px); }
+.set-actions button:active { transform: translateY(0); background: color-mix(in srgb, var(--accent-soft) 75%, black 10%); }
+.set-actions button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.set-body { display: none; border-top: 1px solid var(--line); padding: 12px 14px 14px; }
+.set.open .set-body { display: block; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.card-tile-wrap { transition: transform 0.22s var(--ease-out); perspective: 700px; }
+.card-tile-wrap:hover { transform: translateY(-4px); }
+.card-tile-wrap:has(.card-tile:active) { transform: translateY(-1px) scale(0.98); }
+
+/* Subtle cursor-tracked 3D tilt on the rarest tier -- pairs with the foil
+   sheen below so a legendary pull actually feels handled, not just clicked.
+   --rx/--ry are set by wireFoilTracking() in app.js on pointermove and
+   reset to 0deg on pointerout, so the card settles back flat when the
+   cursor leaves. */
+.card-tile[data-tier="high"] {
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease-out;
+}
+
+.card-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 0 0 8px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  box-shadow: var(--e1);
+  transition: box-shadow 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+.card-tile-wrap:hover .card-tile { box-shadow: var(--e3); }
+.card-tile:focus-visible { outline: none; box-shadow: var(--e2), 0 0 0 3px color-mix(in srgb, var(--focus) 30%, transparent); }
+.card-tile[data-owned="true"] {
+  background: var(--owned-soft);
+  border-color: color-mix(in srgb, var(--owned) 45%, var(--line));
+}
+.card-tile[data-owned="true"] .tile-art { filter: none; }
+/* A missing card reads like an empty binder pocket -- dimmed and desaturated
+   rather than shown in full color -- so a page of cards separates owned
+   from not-yet at a glance. Hovering lifts the dimming slightly, like
+   tilting the pocket toward the light to check what's meant to go there. */
+.card-tile:not([data-owned="true"]) .tile-art img {
+  filter: grayscale(55%) brightness(0.76) contrast(0.96);
+  transition: filter 0.25s ease;
+}
+.card-tile-wrap:hover .card-tile:not([data-owned="true"]) .tile-art img {
+  filter: grayscale(30%) brightness(0.92) contrast(0.98);
+}
+.card-tile:not([data-owned="true"]) .tile-art { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3); }
+
+/* A wishlisted card gets a pink border -- the same rose the heart badge
+   already turns when it's tapped -- so a wanted card stands out in the grid
+   at a glance, not just via the small corner icon. Outranks the plain and
+   owned-state border colors above by specificity; on a UR+ tile this paints
+   right at the card's own edge, layered just inside the rainbow rarity ring
+   below, so both signals -- "rare" and "wanted" -- read at once. */
+.card-tile-wrap:has(.tile-wish[data-wished="true"]) .card-tile {
+  border-color: var(--accent-2);
+}
+
+/* Foil sheen for the top rarity tiers -- a diagonal sweep that catches on hover,
+   so pulling (or hunting) a high-tier card reads as an occasion, not a checkbox. */
+.card-tile[data-tier="high"][data-owned="true"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.card-tile-wrap:hover .card-tile[data-tier="high"][data-owned="true"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent), 0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.card-tile[data-tier="high"] .tile-art { position: relative; }
+/* Cursor-tracked holo spot -- follows the pointer (set as --mx/--my by JS)
+   like light catching real foil as the card tilts. Sits under the diagonal
+   sweep below, which still plays on hover regardless of pointer position. */
+.card-tile[data-tier="high"] .tile-art::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(90px 90px at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.55), transparent 62%);
+  opacity: 0;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.card-tile-wrap:hover .card-tile[data-tier="high"] .tile-art::before { opacity: 1; }
+.card-tile[data-tier="high"] .tile-art::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.65) 42%, rgba(255,255,255,0.15) 50%, transparent 65%);
+  background-size: 240% 240%;
+  background-position: 130% 130%;
+  opacity: 0;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  transition: opacity 0.22s ease, background-position 0.7s ease;
+}
+.card-tile-wrap:hover .card-tile[data-tier="high"] .tile-art::after {
+  opacity: 1;
+  background-position: -30% -30%;
+}
+
+/* Rainbow glow border for UR-and-above rarities -- a signal a lower tier
+   never gets, so a legendary-or-better card reads as special from across a
+   full page before you even check the rarity glyph, owned or not. The ring
+   replaces the plain dark border every other card keeps below it. It's
+   static at rest and only spins (a simple hue-rotate sweep) on the one tile
+   you're actually hovering or keyboard-focusing -- up to ~450 of these can
+   be on screen at once with "Expand all", and animating all of them
+   simultaneously would be a lot of moving color for very little payoff. */
+.card-tile[data-tier="high"] { border-color: transparent; }
+.card-tile-wrap:has(.card-tile[data-tier="high"])::before,
+.card-tile-wrap:has(.card-tile[data-tier="high"])::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, #ff5f6d, #ffb648, #f4e04d, #6ee7a0, #4fc3f7, #a78bfa, #ff5f6d);
+}
+.card-tile-wrap:has(.card-tile[data-tier="high"])::before {
+  inset: -2px;
+  border-radius: 12px;
+  padding: 2px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.55;
+  transition: opacity 0.25s ease;
+}
+.card-tile-wrap:has(.card-tile[data-tier="high"])::after {
+  inset: -5px;
+  border-radius: 15px;
+  filter: blur(6px);
+  opacity: 0.25;
+  z-index: -1;
+  transition: opacity 0.25s ease;
+}
+/* Owned rares get the fullest, brightest ring -- missing ones stay a little
+   quieter (echoing the dimmed art on a missing tile) but still catch the eye
+   as something worth hunting. */
+.card-tile-wrap:has(.card-tile[data-tier="high"][data-owned="true"])::before { opacity: 0.95; }
+.card-tile-wrap:has(.card-tile[data-tier="high"][data-owned="true"])::after { opacity: 0.5; }
+.card-tile-wrap:hover:has(.card-tile[data-tier="high"])::before,
+.card-tile-wrap:has(.card-tile[data-tier="high"]:focus-visible)::before {
+  opacity: 1;
+  animation: rainbow-spin 3s linear infinite;
+}
+.card-tile-wrap:hover:has(.card-tile[data-tier="high"])::after,
+.card-tile-wrap:has(.card-tile[data-tier="high"]:focus-visible)::after {
+  opacity: 0.6;
+  animation: rainbow-spin-blur 3s linear infinite;
+}
+@keyframes rainbow-spin { to { filter: hue-rotate(360deg); } }
+@keyframes rainbow-spin-blur { to { filter: blur(6px) hue-rotate(360deg); } }
+
+.tile-art {
+  width: 100%;
+  aspect-ratio: 80 / 111;
+  background: var(--line);
+  overflow: hidden;
+}
+.tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile-art-empty {
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.85); font-family: "Baloo 2", sans-serif; font-weight: 700; font-size: 1.6rem;
+}
+
+.tile-num { font-size: 0.65rem; color: var(--muted); padding: 6px 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.tile-rarity-glyph { width: 9px; height: 9px; flex: none; }
+.tile-rarity-glyph[data-tier="low"] { color: var(--muted); opacity: 0.55; }
+.tile-rarity-glyph[data-tier="mid"] { color: var(--accent-soft); }
+.tile-rarity-glyph[data-tier="high"] { color: var(--accent); filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 65%, transparent)); }
+.tile-check {
+  position: absolute; top: 6px; right: 6px;
+  width: 19px; height: 19px; border-radius: 6px; border: 1.5px solid rgba(255,255,255,0.85);
+  background: rgba(59,42,34,0.45); backdrop-filter: blur(2px);
+  flex: none; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.card-tile[data-owned="true"] .tile-check { background: var(--owned); border-color: var(--owned); }
+.tile-check svg { width: 12px; height: 12px; color: #fff; opacity: 0; }
+.card-tile[data-owned="true"] .tile-check svg { opacity: 1; }
+
+.card-tile-wrap { position: relative; }
+.tile-wish {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  width: 19px; height: 19px; border-radius: 6px; border: 1.5px solid rgba(255,255,255,0.85);
+  background: rgba(59,42,34,0.45); backdrop-filter: blur(2px);
+  padding: 0; margin: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  color: #fff;
+  transition: filter 0.12s ease, transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.tile-wish svg { width: 11px; height: 11px; }
+.tile-wish[data-wished="true"] { background: var(--accent-2); border-color: var(--accent-2); }
+.tile-wish:hover { filter: brightness(1.15); transform: scale(1.12); }
+.tile-wish:not([data-wished="true"]):hover { color: #ffd7dd; }
+.tile-wish:active { transform: scale(0.92); }
+.tile-wish:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.card-tile:disabled,
+.tile-wish:disabled,
+.set-actions button:disabled,
+.spend-row-del:disabled,
+.spend-add-btn:disabled,
+#importBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.field input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.tile-name {
+  font-size: 0.8rem; font-weight: 700; line-height: 1.25; padding: 0 8px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tile-tags { display: flex; align-items: center; gap: 5px; margin-top: auto; flex-wrap: wrap; padding: 0 8px; }
+.pip { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(242,234,217,0.18); }
+.rarity-pill {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.02em;
+  padding: 1.5px 6px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--muted);
+}
+.rarity-pill[data-tier="high"] { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; }
+.type-tag { font-size: 0.62rem; color: var(--muted); text-transform: capitalize; }
+
+.empty-note { color: var(--muted); font-size: 0.85rem; padding: 8px 2px; }
+
+/* ---------- Set-complete celebration ---------- */
+.confetti-burst { position: fixed; width: 0; height: 0; pointer-events: none; z-index: 150; }
+.confetti-piece {
+  position: absolute; top: 0; left: 0;
+  width: 6px; height: 6px; border-radius: 1px;
+  animation: confetti-pop 0.8s ease-out forwards;
+  animation-delay: var(--delay, 0ms);
+}
+@keyframes confetti-pop {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx, 0), var(--dy, -40px)) rotate(var(--dr, 180deg)); opacity: 0; }
+}
+
+/* ---------- Wishlist summary ---------- */
+.wishlist-summary { margin-top: 30px; padding-top: 18px; border-top: 1px dashed var(--line); }
+.wishlist-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.wishlist-summary-head .group-label { margin: 0; }
+.wishlist-summary-count { font-size: 0.76rem; color: var(--muted); }
+.wishlist-summary-note { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+
+footer {
+  max-width: 1180px; margin: 30px auto 0; padding-top: 16px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 0.78rem; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+footer a { color: var(--muted); text-decoration: underline; }
+
+.io-actions { display:flex; gap:8px; }
+
+/* ---------- Page transitions ---------- */
+.page-enter { animation: page-fade-in 0.3s cubic-bezier(.22,.8,.4,1); }
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- View tabs ---------- */
+/* Page-level navigation reads differently from a filter chip row: an
+   underline indicator rather than a filled pill, so Collection / Wishlist /
+   Spending feel like the app's actual pages rather than another toggle. */
+.view-tabs {
+  margin: 14px auto 0;
+  max-width: 1180px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  gap: 2px;
+}
+.view-tabs button {
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 10px 16px 11px;
+  border-right: none;
+  border-radius: 0;
+  background: transparent;
+  position: relative;
+  color: var(--muted);
+  transition: color 0.15s var(--ease-out);
+}
+.view-tabs button::after {
+  content: "";
+  position: absolute; left: 12px; right: 12px; bottom: -1px;
+  height: 2px; border-radius: 2px 2px 0 0;
+  background: transparent;
+  box-shadow: none;
+  transition: background-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  transform: scaleX(0.6);
+}
+.view-tabs button:hover { color: var(--ink); background: transparent; }
+.view-tabs button[aria-pressed="true"] { color: var(--ink); background: transparent; font-weight: 700; }
+.view-tabs button[aria-pressed="true"]::after {
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent-hi));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  transform: scaleX(1);
+}
+.view-tabs button:active { background: transparent; }
+
+/* ---------- Spending: KPIs ---------- */
+.spend-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.stat-tile {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 96%, black 4%) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--e2), var(--sheen-top);
+  padding: 15px 17px;
+  overflow: hidden;
+  transition: box-shadow 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+}
+.stat-tile:hover { box-shadow: var(--e3), var(--sheen-top); transform: translateY(-1px); }
+.stat-tile::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.55;
+}
+.stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 7px; font-weight: 600; }
+.stat-value { font-size: 1.8rem; font-weight: 800; font-family: "Baloo 2", "Nunito Sans", sans-serif; color: var(--ink); letter-spacing: 0.2px; }
+
+/* ---------- Spending: cards ---------- */
+.spend-card {
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 96%, black 4%) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--e2), var(--sheen-top);
+  padding: 17px 17px 15px;
+  margin-bottom: 14px;
+}
+.spend-card-head { margin-bottom: 9px; }
+.spend-card-head h2 { font-size: 1.04rem; letter-spacing: 0.1px; }
+.spend-card-sub { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+
+/* ---------- Charts ---------- */
+.chart-wrap { position: relative; width: 100%; }
+.chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-grid line { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.chart-baseline { stroke: var(--muted); stroke-width: 1; opacity: 0.5; }
+.chart-axis-label { fill: var(--muted); font-size: 10px; }
+.chart-area { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.chart-end-label { fill: var(--ink); font-size: 11px; font-weight: 700; }
+.chart-crosshair { stroke: var(--muted); stroke-width: 1; pointer-events: none; opacity: 0; }
+.chart-hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; pointer-events: none; opacity: 0; }
+.chart-hit { fill: transparent; }
+.chart-bar { fill: var(--accent); transition: fill 0.1s ease, opacity 0.1s ease; }
+.chart-bar.hovered { fill: var(--accent-ink); }
+.chart-bar-hit { fill: transparent; cursor: pointer; }
+.chart-empty { display: flex; align-items: center; justify-content: center; min-height: 160px; color: var(--muted); font-size: 0.85rem; text-align: center; padding: 20px; }
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.76rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  opacity: 0;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  z-index: 5;
+  transition: opacity 0.08s ease;
+}
+.chart-tooltip.visible { opacity: 1; }
+.chart-tooltip-title { font-weight: 700; margin-bottom: 3px; opacity: 0.85; }
+.chart-tooltip-row { display: flex; align-items: center; gap: 6px; }
+.chart-tooltip-label { opacity: 0.8; }
+.chart-tooltip-value { font-weight: 800; margin-left: auto; font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+/* ---------- Spending: form ---------- */
+.spend-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.field input {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  min-width: 0;
+}
+.field input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.field-grow { flex: 1 1 200px; }
+.spend-add-btn {
+  background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; align-self: end;
+  transition: background-color 0.15s ease, transform 0.12s ease, box-shadow 0.18s ease;
+}
+.spend-add-btn:hover {
+  background: color-mix(in srgb, var(--accent) 92%, white 8%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.spend-add-btn:active {
+  transform: translateY(0);
+  background: color-mix(in srgb, var(--accent) 88%, black 12%);
+  box-shadow: none;
+}
+
+/* ---------- Spending: history list ---------- */
+.spend-list { display: flex; flex-direction: column; }
+.spend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.spend-row:last-child { border-bottom: none; }
+.spend-row-date { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 0.78rem; color: var(--muted); flex: 0 0 auto; min-width: 78px; }
+.spend-row-note { flex: 1 1 auto; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spend-row-amount { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 700; flex: 0 0 auto; }
+.spend-row-del {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.spend-row-del:hover { background: var(--missing-soft); color: var(--missing); transform: scale(1.1); }
+.spend-row-del:active { transform: scale(0.94); }
+.spend-row-del:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+@media (max-width: 640px) {
+  /* The sticky header was eating ~46% of a phone's vertical space (377px of
+     812px) before this pass -- four loosely-packed control rows plus full
+     desktop padding. Tightened throughout so more of the screen is actually
+     cards, while every control stays reachable and full-size for touch. */
+  .topbar { padding: 10px 16px 8px; margin-bottom: 14px; }
+  .topbar-row { gap: 10px; }
+  .ring-wrap { display: none; }
+  .brand svg, .brand-mark { width: 28px; height: 28px; }
+  .brand-text h1 { font-size: 1.18rem; }
+  .brand-text .sub { font-size: 0.62rem; }
+  .progress-text { text-align: right; }
+  .progress-text .lbl { display: none; }
+  .progress-text .num { font-size: 0.85rem; }
+  .couple-pill { display: none; }
+  .set-bar-wrap { display: none; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+  footer { flex-direction: column; }
+  .spend-kpis { grid-template-columns: 1fr; }
+  .spend-form { flex-direction: column; align-items: stretch; }
+  .field-grow { flex: 1 1 auto; }
+  .spend-add-btn { align-self: stretch; text-align: center; }
+  .spend-row-note { white-space: normal; }
+
+  /* Set rows: let the mark-owned/missing actions wrap to their own full-width
+     row instead of being clipped by the card's overflow:hidden. */
+  .set-head { flex-wrap: wrap; row-gap: 10px; }
+  .set-count { margin-left: auto; }
+  .set-actions { flex: 1 1 100%; gap: 8px; }
+  .set-actions button { flex: 1 1 0; padding: 10px 8px; font-size: 0.78rem; }
+
+  /* Controls: pack search / the three filter selects / the ownership seg /
+     expand-collapse into four deliberate, evenly-filled rows instead of
+     whatever the browser's default flex-wrap happened to produce (which
+     stranded "Collapse all" alone on its own row). Heights are trimmed but
+     every target stays >=40px tall for touch. */
+  .controls { margin-top: 8px; gap: 6px; }
+  .search-wrap { flex: 1 1 100%; }
+  select.filter { flex: 1 1 0; min-width: 0; }
+  .ownership-seg { flex: 1 1 100%; }
+  .ownership-seg button { flex: 1 1 0; }
+  #expandAllBtn, #collapseAllBtn { flex: 1 1 0; }
+  .view-tabs { margin-top: 10px; }
+  .view-tabs button { padding: 9px 12px 10px; font-size: 0.88rem; }
+
+  /* Bigger touch targets throughout */
+  .iconbtn { padding: 9px 10px; font-size: 0.82rem; }
+  .seg button { padding: 9px 8px; font-size: 0.82rem; }
+  #search, select.filter { padding: 9px 9px 9px 30px; font-size: 0.85rem; }
+  select.filter { padding: 9px 6px; }
+
+  /* The owned-checkbox and wishlist-heart corner buttons were a 19x19px
+     target -- well under the ~40px minimum a thumb can hit reliably. Sized
+     up on mobile specifically; a 152px-wide tile (2-per-row layout) has
+     plenty of room for both at this size without them touching. */
+  .tile-check, .tile-wish { width: 28px; height: 28px; border-radius: 8px; }
+  .tile-check svg, .tile-wish svg { width: 15px; height: 15px; }
+  .spend-row-del { padding: 8px 10px; font-size: 1rem; }
+  .spend-row { gap: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  .card-tile[data-tier="high"] { transform: none !important; }
+}

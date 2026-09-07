@@ -1,0 +1,178 @@
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-row">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Original mark: a small witch-cookie silhouette -- dark
+               brimmed hat with a gold star pin, fluffy pale hair, and a
+               sparkle accent -- an original drawing echoing the "wizard
+               cookie with a starlit wand" archetype rather than any one
+               character's actual artwork. -->
+          <circle cx="16" cy="17.5" r="12.5" fill="#EDE7F6"/>
+          <circle cx="16" cy="17.5" r="12.5" stroke="#B9AEDE" stroke-width="1.2"/>
+          <!-- fluffy hair peeking from under the hat brim -->
+          <path d="M6.2 16.4c-1.1 2.6-.4 5 1.6 6.4-1.3.2-2.4 1.3-2.2 2.8 1.8 1.2 3.9.9 5-.6" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="#FFFFFF" opacity="0.95"/>
+          <path d="M25.6 16.6c1.1 2.6.4 4.9-1.5 6.3 1.3.2 2.3 1.3 2.1 2.7-1.8 1.2-3.8.9-4.9-.5" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="#FFFFFF" opacity="0.95"/>
+          <!-- witch hat -->
+          <path d="M7 14.6c1.4-4.4 5-7.3 9-7.3s7.6 2.9 9 7.3c.2.7-.3 1.3-1 1.3H8c-.7 0-1.2-.6-1-1.3Z" fill="#241F3D"/>
+          <path d="M5.6 14.7h20.8c.9 0 1.5.9 1.1 1.7-.3.6-.9.9-1.5.9H6c-.6 0-1.2-.3-1.5-.9-.4-.8.2-1.7 1.1-1.7Z" fill="#2E2851"/>
+          <path d="M12.6 10.8l2.9-1.1 3 1.1-1 2.9h-3.9l-1-2.9Z" fill="var(--accent)"/>
+          <circle cx="15.5" cy="11.2" r="0.9" fill="var(--accent-hi)"/>
+          <!-- sparkly eyes -->
+          <circle cx="12.2" cy="19.6" r="1.35" fill="#3A2E63"/>
+          <circle cx="19.6" cy="19.6" r="1.35" fill="#3A2E63"/>
+          <circle cx="11.8" cy="19.1" r="0.42" fill="#fff"/>
+          <circle cx="19.2" cy="19.1" r="0.42" fill="#fff"/>
+          <path d="M13.7 23.4c.8.7 3.6.7 4.4 0" stroke="#8A7BAE" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+          <!-- floating star sparkle accent -->
+          <path d="M25.4 8.2l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7.7-1.7Z" fill="var(--accent-hi)"/>
+        </svg>
+        <div class="brand-text">
+          <h1>Braverse <span class="brand-accent">Binder</span></h1>
+          <div class="sub">CookieRun: Braverse collection tracker</div>
+        </div>
+      </div>
+      <div class="progress-summary">
+        <div class="ring-wrap">
+          <svg class="ring" viewBox="0 0 36 36" aria-hidden="true">
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--accent)"></stop>
+                <stop offset="100%" style="stop-color:var(--accent-2)"></stop>
+              </linearGradient>
+            </defs>
+            <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--surface-2)" stroke-width="4"></circle>
+            <circle id="ringFg" cx="18" cy="18" r="15.5" fill="none" stroke="url(#ringGrad)" stroke-width="4" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+          </svg>
+          <span class="ring-pct mono" id="ringPct" aria-hidden="true">0%</span>
+        </div>
+        <div class="progress-text">
+          <div class="num"><span id="ownedCount" class="mono">0</span> / <span id="totalCount" class="mono">2244</span></div>
+          <div class="lbl">Collected</div>
+        </div>
+        <span class="couple-pill" title="Built for the two of you to fill in together"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 13.8s-5.6-3.35-7.2-6.55C-.2 4.9 1.2 2.4 3.8 2.1c1.5-.17 2.9.6 3.7 1.85.8-1.25 2.2-2.02 3.7-1.85 2.6.3 4 2.8 3 5.15C13.6 10.45 8 13.8 8 13.8z"/></svg>Shared collection</span>
+        <span id="syncPill" class="sync-pill" data-state="local"><span class="dot"></span><span id="syncLabel">Local only</span></span>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="search-wrap">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="9" r="6.2"/><path d="M17 17l-4-4" stroke-linecap="round"/></svg>
+        <input id="search" type="search" placeholder="Search card name, number, or set…" autocomplete="off">
+      </div>
+      <select id="filterColor" class="filter" aria-label="Filter by color">
+        <option value="">All colors</option>
+      </select>
+      <select id="filterRarity" class="filter" aria-label="Filter by rarity">
+        <option value="">All rarities</option>
+      </select>
+      <select id="filterType" class="filter" aria-label="Filter by type">
+        <option value="">All types</option>
+      </select>
+      <div class="seg ownership-seg" role="group" aria-label="Ownership filter">
+        <button type="button" data-view="all" aria-pressed="true">All</button>
+        <button type="button" data-view="owned" aria-pressed="false">Owned</button>
+        <button type="button" data-view="missing" aria-pressed="false">Missing</button>
+      </div>
+      <button type="button" class="iconbtn" id="expandAllBtn">Expand all</button>
+      <button type="button" class="iconbtn" id="collapseAllBtn">Collapse all</button>
+    </div>
+    <nav class="seg view-tabs" id="viewTabs" role="tablist" aria-label="Page">
+      <button type="button" data-tab="collection" role="tab" aria-pressed="true">Collection</button>
+      <button type="button" data-tab="wishlist" role="tab" aria-pressed="false" id="navWishlistTab">Wishlist</button>
+      <button type="button" data-tab="spending" role="tab" aria-pressed="false">Spending</button>
+    </nav>
+  </div>
+
+  <div id="collectionView">
+    <div id="sets"></div>
+    <div id="wishlistSummary" class="wishlist-summary" hidden>
+      <div class="wishlist-summary-head">
+        <span class="group-label">Wishlist summary</span>
+        <span class="wishlist-summary-count mono" id="wishlistSummaryCount"></span>
+      </div>
+      <div class="wishlist-summary-note">Every card on the list in one flat view — no set grouping, handy as a shopping list.</div>
+      <div class="card-grid" id="wishlistSummaryGrid"></div>
+    </div>
+  </div>
+
+  <div id="spendingView" hidden>
+    <div class="spend-kpis">
+      <div class="stat-tile">
+        <div class="stat-label">Total spent</div>
+        <div class="stat-value" id="spendTotal">$0.00</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Purchases logged</div>
+        <div class="stat-value" id="spendCount">0</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Average per purchase</div>
+        <div class="stat-value" id="spendAvg">$0.00</div>
+      </div>
+    </div>
+
+    <div class="spend-card">
+      <div class="spend-card-head">
+        <h2>Spending over time</h2>
+        <div class="spend-card-sub">Running total since your first logged purchase</div>
+      </div>
+      <div class="chart-wrap" id="cumulativeChartWrap"></div>
+    </div>
+
+    <div class="spend-card">
+      <div class="spend-card-head">
+        <h2>Spending by month</h2>
+        <div class="spend-card-sub">How much you've put in each month</div>
+      </div>
+      <div class="chart-wrap" id="monthlyChartWrap"></div>
+    </div>
+
+    <div class="spend-card">
+      <div class="spend-card-head"><h2>Log a purchase</h2></div>
+      <form id="spendForm" class="spend-form">
+        <div class="field">
+          <label for="spendDate">Date</label>
+          <input type="date" id="spendDate" required>
+        </div>
+        <div class="field">
+          <label for="spendAmount">Amount ($)</label>
+          <input type="number" id="spendAmount" step="0.01" min="0" placeholder="0.00" required>
+        </div>
+        <div class="field field-grow">
+          <label for="spendNote">What was it?</label>
+          <input type="text" id="spendNote" placeholder="e.g. BS12 booster box" maxlength="80" autocomplete="off">
+        </div>
+        <button type="submit" class="iconbtn spend-add-btn">Add purchase</button>
+      </form>
+    </div>
+
+    <div class="spend-card">
+      <div class="spend-card-head"><h2>Purchase history</h2></div>
+      <div id="spendList" class="spend-list"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div>Card data via <a href="https://cookierun.gg/" target="_blank" rel="noopener">cookierun.gg</a> — 2,244 cards across 12 booster sets, 10 starter decks &amp; promos. Not affiliated with Devsisters.</div>
+    <div class="io-actions">
+      <button type="button" class="iconbtn" id="exportBtn">Backup JSON</button>
+      <button type="button" class="iconbtn" id="importBtn">Restore JSON</button>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+  </footer>
+
+  <div class="modal-overlay" id="backupOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backupModalTitle">
+      <div class="modal-head">
+        <h2 id="backupModalTitle">Backup your collection</h2>
+        <button type="button" class="modal-close" id="backupCloseBtn" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-sub">Copy this and save it somewhere safe — a note, an email to yourself. Paste it back in any time with <strong>Restore JSON</strong> to reload your collection.</p>
+      <textarea id="backupText" class="modal-textarea" readonly spellcheck="false"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="iconbtn" id="backupDoneBtn">Done</button>
+        <button type="button" class="iconbtn accent" id="backupCopyBtn">Copy to clipboard</button>
+      </div>
+    </div>
+  </div>
+</div>
