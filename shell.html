@@ -84,7 +84,19 @@
   </div>
 
   <div id="collectionView">
-    <div id="sets"></div>
+    <div id="sets">
+      <!-- This page embeds its entire ~15MB card dataset as one inline
+           script -- nothing above this line needs it, but everything below
+           waits for that whole script to download and run before it
+           replaces this div's contents. On a slow connection that can take
+           a while; without this placeholder the page looks broken (an
+           empty shell under a working header) instead of merely loading. -->
+      <div class="loading-note">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        Loading your collection… this page bundles all card art in one file
+        (~15MB), so a slow connection may take a moment.
+      </div>
+    </div>
     <div id="wishlistSummary" class="wishlist-summary" hidden>
       <div class="wishlist-summary-head">
         <span class="group-label">Wishlist summary</span>
