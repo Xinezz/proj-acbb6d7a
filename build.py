@@ -81,7 +81,7 @@ INITIAL_STATE_JSON = json.dumps({
     "spending": [
         {"id": "s_mtl8kx4bs6sw8", "date": "2026-09-02", "amount": 55, "note": "The Dark Enchantress War - BS11"}
     ],
-    "wishlist": ["BS12-100","BS12-099","BS12-098","BS12-097","BS12-096","BS12-095","BS2-063@1","BS2-063"]
+    "wishlist": ["BS12-100","BS12-099","BS12-098","BS12-097","BS12-096","BS12-095","BS2-063@1","BS2-063","BS4-092@4","BS4-092@3","BS4-092@2","BS4-092@1","BS4-092","BS12-090@1","BS12-090","P-124","P-040@1","P-022","BS12-002","BS12-007","BS12-004","BS12-025"]
 })
 
 full_html = HEAD + INITIAL_STATE_JSON + TAIL_AFTER_STATE_BEFORE_APPLOGIC + app_js + TAIL_AFTER_APPLOGIC
