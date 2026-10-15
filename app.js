@@ -26,12 +26,27 @@ var RARITY_INFO = {
   P:   { name: "Promo",              tier: "mid" }
 };
 var RARITY_ORDER = ["C","U","R","SR","UR","SEC","SSR","SUR","EXR","GXR","P"];
+var RARITY_RANK = {};
+RARITY_ORDER.forEach(function(r, i){ RARITY_RANK[r] = i; });
 var COLOR_ORDER = ["RED","YELLOW","GREEN","BLUE","PURPLE","BLACK","PURE","COLORLESS"];
 var COLOR_NAME = { RED:"Red", YELLOW:"Yellow", GREEN:"Green", BLUE:"Blue", PURPLE:"Purple", BLACK:"Black", PURE:"Pure", COLORLESS:"Colorless" };
 var COLOR_HEX = { RED:"var(--c-red)", YELLOW:"var(--c-yellow)", GREEN:"var(--c-green)", BLUE:"var(--c-blue)", PURPLE:"var(--c-purple)", BLACK:"var(--c-black)", PURE:"var(--c-pure)", COLORLESS:"var(--c-colorless)" };
 var TYPE_ORDER = ["COOKIE","STAGE","TRAP","ITEM","FLIP","EXTRA","NPC"];
 var TYPE_NAME = { COOKIE:"Cookie", STAGE:"Stage", TRAP:"Trap", ITEM:"Item", FLIP:"Flip", EXTRA:"Extra", NPC:"NPC" };
 var GROUP_NAME = { Booster: "Booster Packs", Starter: "Starter Decks", Promo: "Promo & Events" };
+
+/* What a purchase can be. Colors are the gold-to-bronze ramp the donut chart
+   uses; the last two are deliberately quiet so the real spending stands out. */
+var SPEND_KINDS = [
+  { id: "box",     name: "Booster box",       color: "#b8862a" },
+  { id: "packs",   name: "Booster packs",     color: "#e2c05f" },
+  { id: "deck",    name: "Starter deck",      color: "#8a6a3a" },
+  { id: "singles", name: "Single cards",      color: "#d4a191" },
+  { id: "gear",    name: "Binders & sleeves", color: "#a59d88" },
+  { id: "other",   name: "Other",             color: "#d9cfb4" }
+];
+var KIND_BY_ID = {};
+SPEND_KINDS.forEach(function(k){ KIND_BY_ID[k.id] = k; });
 
 var CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 var WISH_SVG = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 13.6s-5.4-3.25-6.95-6.35C-.35 4.9 1 2.55 3.45 2.27c1.4-.16 2.75.55 3.55 1.75.8-1.2 2.15-1.91 3.55-1.75 2.45.28 3.8 2.63 2.4 5-1.55 3.1-6.95 6.33-6.95 6.33z"/></svg>';
@@ -40,14 +55,22 @@ var COMPLETE_SVG = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 13.
    glance at a row of cards tells you which are worth a second look without
    reading the rarity pill text. */
 var GEM_SVG = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.2 1.6h7.6l2.9 4-7.2 8.8-7.2-8.8 2.9-4z"/></svg>';
+var ZOOM_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.3"/><path d="M10.4 10.4L14 14"/></svg>';
+var CHEV_L_SVG = '<svg viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var CHEV_R_SVG = '<svg viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var EDIT_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l.6-2.8L11 2.8a1.4 1.4 0 0 1 2 2l-7.4 7.4L3 13z"/></svg>';
+var TRASH_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/></svg>';
+var MEDAL_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.2l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.5l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8L12 3.2z"/></svg>';
 
 /* ===== Index cards by set ===== */
 var CARDS_BY_SET = {};
+var CARD_BY_ID = {};
 for (var i = 0; i < CARDS.length; i++) {
   var c = CARDS[i];
   var setCode = c[1];
   if (!CARDS_BY_SET[setCode]) CARDS_BY_SET[setCode] = [];
   CARDS_BY_SET[setCode].push(c);
+  CARD_BY_ID[c[0]] = c;
 }
 /* Show each set in binder order -- 001 first, each alt-art/promo version
    (@1, @2 ...) right after its base card -- the same order as the official
@@ -58,92 +81,145 @@ function cardOrderKey(id){
   var m = /[-_](\d+)(?:@(\d+))?$/.exec(id);
   return m ? [parseInt(m[1], 10), m[2] ? parseInt(m[2], 10) : 0] : [99999, 0];
 }
+function compareBinderOrder(a, b){
+  var ka = cardOrderKey(a[0]), kb = cardOrderKey(b[0]);
+  return (ka[0] - kb[0]) || (ka[1] - kb[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+}
 Object.keys(CARDS_BY_SET).forEach(function(code){
-  CARDS_BY_SET[code].sort(function(a, b){
-    var ka = cardOrderKey(a[0]), kb = cardOrderKey(b[0]);
-    return (ka[0] - kb[0]) || (ka[1] - kb[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-  });
+  CARDS_BY_SET[code].sort(compareBinderOrder);
 });
 var SET_LABEL = {};
-SET_META.forEach(function(s){ SET_LABEL[s[0]] = s[1]; });
+var SET_INDEX = {};
+SET_META.forEach(function(s, idx){ SET_LABEL[s[0]] = s[1]; SET_INDEX[s[0]] = idx; });
+
+function byId(id){ return document.getElementById(id); }
 
 /* ===== State ===== */
-function readInitialOwned(){
-  var fromDoc = [];
+function readDocState(){
   try {
-    var el = document.getElementById("cr-state");
+    var el = byId("cr-state");
     var parsed = JSON.parse((el && el.textContent) || "{}");
-    if (Array.isArray(parsed.owned)) fromDoc = parsed.owned;
-  } catch(e){}
-  var fromLocal = [];
+    return (parsed && typeof parsed === "object") ? parsed : {};
+  } catch(e){ return {}; }
+}
+function readLocalJson(key){
   try {
-    var raw = localStorage.getItem("crb_owned_backup");
-    if (raw) { var arr = JSON.parse(raw); if (Array.isArray(arr)) fromLocal = arr; }
-  } catch(e){}
-  var merged = new Set(fromDoc);
-  fromLocal.forEach(function(id){ merged.add(id); });
-  return merged;
+    var raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
+var DOC_STATE = readDocState();
+
+/* Where the starting state comes from.
+
+   The page itself carries the last saved collection. This browser also keeps a
+   full snapshot of the last thing it saved, stamped with the time, written just
+   before each publish attempt.
+
+   - In the shared artifact the page is the source of truth. The browser
+     snapshot is used only when it is newer than the page, meaning a change
+     that never finished publishing (which is then published again). Otherwise
+     an edit or an unchecked card made on another device would be quietly
+     undone by a stale snapshot here.
+   - On a plain web host there is nothing shared to sync with, so this
+     browser's own snapshot is the truth and the page only seeds a first
+     visit. */
+function readSnapshot(){
+  var snap = {
+    owned: readLocalJson("crb_owned_backup"),
+    spending: readLocalJson("crb_spending_backup"),
+    wishlist: readLocalJson("crb_wishlist_backup"),
+    budget: readLocalJson("crb_budget_backup")
+  };
+  if (!Array.isArray(snap.owned) || !Array.isArray(snap.spending) || !Array.isArray(snap.wishlist)) return null;
+  snap.budget = Number(snap.budget) > 0 ? Number(snap.budget) : 0;
+  snap.savedAt = 0;
+  try { snap.savedAt = Number(localStorage.getItem("crb_saved_at")) || 0; } catch(e){}
+  return snap;
+}
+
+/* A purchase records when it happened, how much, which set it was for and
+   what kind of thing it was. Older entries only had a date, amount and note;
+   for those the set is read back out of the note ("... - BS11") so existing
+   history lands in the right series without anyone re-entering it. */
+function inferSeries(note){
+  var m = /\b(BS\d{1,2}|ST\d{1,2})\b/i.exec(note || "");
+  if (!m) return "";
+  var code = m[1].toUpperCase();
+  return SET_LABEL[code] ? code : "";
 }
 
 function normalizeSpendEntry(e){
   if (!e || typeof e !== "object") return null;
   var amount = Number(e.amount);
   if (!isFinite(amount) || amount < 0) return null;
+  amount = Math.round(amount * 100) / 100;
   var date = (typeof e.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) ? e.date : todayLocalISO();
   var id = (typeof e.id === "string" && e.id) ? e.id : ("s_" + Date.now().toString(36) + Math.random().toString(36).slice(2,7));
   var note = typeof e.note === "string" ? e.note.slice(0, 120) : "";
-  return { id: id, date: date, amount: amount, note: note };
+  var series = (typeof e.series === "string" && (e.series === "" || SET_LABEL[e.series])) ? e.series : "";
+  if (!series && !("series" in e)) series = inferSeries(note);
+  var kind = (typeof e.kind === "string" && KIND_BY_ID[e.kind]) ? e.kind : "other";
+  return { id: id, date: date, amount: amount, note: note, series: series, kind: kind };
 }
 
-function readInitialSpending(){
-  var fromDoc = [];
-  try {
-    var el = document.getElementById("cr-state");
-    var parsed = JSON.parse((el && el.textContent) || "{}");
-    if (Array.isArray(parsed.spending)) fromDoc = parsed.spending;
-  } catch(e){}
-  var fromLocal = [];
-  try {
-    var raw = localStorage.getItem("crb_spending_backup");
-    if (raw) { var arr = JSON.parse(raw); if (Array.isArray(arr)) fromLocal = arr; }
-  } catch(e){}
-  var map = {};
-  fromDoc.forEach(function(e){ var n = normalizeSpendEntry(e); if (n) map[n.id] = n; });
-  fromLocal.forEach(function(e){ var n = normalizeSpendEntry(e); if (n) map[n.id] = n; });
-  var out = [];
-  for (var k in map) if (map.hasOwnProperty(k)) out.push(map[k]);
-  out.sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-  return out;
+function loadInitialState(){
+  var inArtifact = !!(window.claude && typeof window.claude.use === "function");
+  var snap = readSnapshot();
+  var docTs = Number(DOC_STATE.savedAt) || 0;
+  var useSnap = !!snap && (inArtifact ? snap.savedAt > docTs : true);
+  var src = useSnap ? snap : DOC_STATE;
+  var spending = [];
+  (Array.isArray(src.spending) ? src.spending : []).forEach(function(e){
+    var n = normalizeSpendEntry(e);
+    if (n) spending.push(n);
+  });
+  spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  var budget = Number(src.budget);
+  return {
+    owned: new Set((Array.isArray(src.owned) ? src.owned : []).filter(function(id){ return typeof id === "string"; })),
+    wishlist: new Set((Array.isArray(src.wishlist) ? src.wishlist : []).filter(function(id){ return typeof id === "string"; })),
+    spending: spending,
+    budget: budget > 0 ? Math.round(budget * 100) / 100 : 0,
+    unpublished: useSnap && inArtifact
+  };
 }
 
-function readInitialWishlist(){
-  var fromDoc = [];
-  try {
-    var el = document.getElementById("cr-state");
-    var parsed = JSON.parse((el && el.textContent) || "{}");
-    if (Array.isArray(parsed.wishlist)) fromDoc = parsed.wishlist;
-  } catch(e){}
-  var fromLocal = [];
-  try {
-    var raw = localStorage.getItem("crb_wishlist_backup");
-    if (raw) { var arr = JSON.parse(raw); if (Array.isArray(arr)) fromLocal = arr; }
-  } catch(e){}
-  var merged = new Set(fromDoc);
-  fromLocal.forEach(function(id){ merged.add(id); });
-  return merged;
-}
-
-var state = { owned: readInitialOwned(), spending: readInitialSpending(), wishlist: readInitialWishlist() };
-var filters = { q: "", color: "", rarity: "", type: "", view: "all" };
-var ui = { expanded: new Set(), tab: "collection" };
+/* Filled in by init() once the page (and, in the viewer, its runtime) is ready. */
+var state = { owned: new Set(), spending: [], wishlist: new Set(), budget: 0 };
+var filters = { q: "", color: "", rarity: "", type: "", view: "all", sort: "binder" };
+var ui = {
+  expanded: new Set(), tab: "overview", layout: "binder", binderPage: {},
+  breakdown: "rarity", range: "all",
+  histSeries: "", histKind: "", histSort: "new", editSpendId: null
+};
 var pendingScrollY = null;
+
+/* Per-viewer preferences (layout, chart range, breakdown tab). These live in
+   this browser's localStorage, not in the shared collection state. */
+var PREFS_KEY = "crb_prefs";
+(function loadPrefs(){
+  var p = readLocalJson(PREFS_KEY);
+  if (!p || typeof p !== "object") return;
+  if (p.layout === "grid" || p.layout === "binder") ui.layout = p.layout;
+  if (p.range === "all" || p.range === "12" || p.range === "6" || p.range === "3") ui.range = p.range;
+  if (p.breakdown === "rarity" || p.breakdown === "color" || p.breakdown === "type") ui.breakdown = p.breakdown;
+  if (p.sort === "binder" || p.sort === "rarity" || p.sort === "name" || p.sort === "color") filters.sort = p.sort;
+})();
+function savePrefs(){
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ layout: ui.layout, range: ui.range, breakdown: ui.breakdown, sort: filters.sort }));
+  } catch(e){}
+}
 
 /* ===== UI stash across the publish-triggered reload ===== */
 function stashUiState(){
   try {
     sessionStorage.setItem("crb_ui_stash", JSON.stringify({
       q: filters.q, color: filters.color, rarity: filters.rarity, type: filters.type, view: filters.view,
-      expanded: Array.from(ui.expanded), tab: ui.tab, scrollY: window.scrollY, ts: Date.now()
+      expanded: Array.from(ui.expanded), tab: ui.tab, binderPage: ui.binderPage,
+      histSeries: ui.histSeries, histKind: ui.histKind, histSort: ui.histSort,
+      scrollY: window.scrollY, ts: Date.now()
     }));
   } catch(e){}
 }
@@ -157,11 +233,15 @@ function restoreUiStateIfAny(){
     filters.q = s.q || ""; filters.color = s.color || ""; filters.rarity = s.rarity || "";
     filters.type = s.type || ""; filters.view = s.view || "all";
     ui.expanded = new Set(s.expanded || []);
-    ui.tab = s.tab || "collection";
+    ui.tab = s.tab || "overview";
+    if (s.binderPage && typeof s.binderPage === "object") ui.binderPage = s.binderPage;
+    ui.histSeries = s.histSeries || ""; ui.histKind = s.histKind || ""; ui.histSort = s.histSort || "new";
     pendingScrollY = (typeof s.scrollY === "number") ? s.scrollY : null;
     return true;
   } catch(e){}
+  return false;
 }
+
 
 /* ===== Matching / stats ===== */
 function cardMatches(c){
@@ -178,14 +258,68 @@ function cardMatches(c){
   }
   return true;
 }
+
+/* Grid-layout ordering. The binder layout always uses plain number order,
+   because that is the order cards sit in a physical binder. */
+function sortCards(list){
+  var s = filters.sort;
+  if (s === "binder") return list;
+  var out = list.slice();
+  if (s === "rarity") out.sort(function(a, b){ return (RARITY_RANK[b[4]] - RARITY_RANK[a[4]]) || compareBinderOrder(a, b); });
+  else if (s === "name") out.sort(function(a, b){ return a[3].localeCompare(b[3]) || compareBinderOrder(a, b); });
+  else if (s === "color") out.sort(function(a, b){ return (COLOR_ORDER.indexOf(a[6]) - COLOR_ORDER.indexOf(b[6])) || compareBinderOrder(a, b); });
+  return out;
+}
+function compareReleaseOrder(a, b){
+  return ((SET_INDEX[a[1]] || 0) - (SET_INDEX[b[1]] || 0)) || compareBinderOrder(a, b);
+}
+
 function setStats(code){
   var list = CARDS_BY_SET[code] || [];
   var owned = 0;
   for (var i = 0; i < list.length; i++) if (state.owned.has(list[i][0])) owned++;
   return { total: list.length, owned: owned };
 }
+function ownedCount(){
+  var n = 0;
+  state.owned.forEach(function(id){ if (CARD_BY_ID[id]) n++; });
+  return n;
+}
 function overallStats(){
-  return { total: CARDS.length, owned: state.owned.size };
+  return { total: CARDS.length, owned: ownedCount() };
+}
+function groupStats(grp){
+  var owned = 0, total = 0;
+  SET_META.forEach(function(s){
+    if (s[2] !== grp) return;
+    var st = setStats(s[0]);
+    owned += st.owned; total += st.total;
+  });
+  return { owned: owned, total: total };
+}
+function countCompleteSets(){
+  var n = 0;
+  SET_META.forEach(function(s){
+    var st = setStats(s[0]);
+    if (st.total > 0 && st.owned === st.total) n++;
+  });
+  return n;
+}
+function ownedTierCount(tier){
+  var n = 0;
+  state.owned.forEach(function(id){
+    var c = CARD_BY_ID[id];
+    if (c && (RARITY_INFO[c[4]] || {}).tier === tier) n++;
+  });
+  return n;
+}
+
+function fmtInt(n){
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function fmtPct(frac, digits){
+  var v = (Number(frac) || 0) * 100;
+  return v.toFixed(digits == null ? 0 : digits) + "%";
 }
 
 /* ===== Rendering ===== */
@@ -193,46 +327,16 @@ var RING_C = 2 * Math.PI * 15.5;
 
 function renderTopProgress(){
   var s = overallStats();
-  document.getElementById("ownedCount").textContent = s.owned;
-  document.getElementById("totalCount").textContent = s.total;
+  byId("ownedCount").textContent = fmtInt(s.owned);
+  byId("totalCount").textContent = fmtInt(s.total);
+  var foot = byId("footCardCount");
+  if (foot) foot.textContent = fmtInt(s.total);
   var pct = s.total ? s.owned / s.total : 0;
-  var ring = document.getElementById("ringFg");
+  var ring = byId("ringFg");
   ring.style.strokeDasharray = RING_C.toFixed(2);
   ring.style.strokeDashoffset = (RING_C * (1 - pct)).toFixed(2);
-  var pctLabel = document.getElementById("ringPct");
+  var pctLabel = byId("ringPct");
   if (pctLabel) pctLabel.textContent = Math.round(pct * 100) + "%";
-}
-
-function tileHtml(c){
-  var owned = state.owned.has(c[0]);
-  var wished = state.wishlist.has(c[0]);
-  var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
-  var colorHex = COLOR_HEX[c[6]] || "var(--c-colorless)";
-  var img = c[8];
-  var art = img
-    ? '<div class="tile-art"><img src="data:image/webp;base64,' + img + '" alt="" loading="lazy" width="80" height="111"></div>'
-    : '<div class="tile-art tile-art-empty" style="background:' + colorHex + '"><span>' + esc(c[3].slice(0,1)) + '</span></div>';
-  var wishLabel = wished ? "Remove from wishlist" : "Add to wishlist";
-  var dis = readOnly ? " disabled" : "";
-  return (
-    '<div class="card-tile-wrap">' +
-      '<button type="button" class="card-tile" data-id="' + esc(c[0]) + '" data-owned="' + owned + '" data-tier="' + esc(rInfo.tier) + '" title="' + esc(c[3]) + ' (' + esc(c[0]) + ')"' + dis + '>' +
-        art +
-        '<span class="tile-check">' + CHECK_SVG + '</span>' +
-        '<div class="tile-num mono">' +
-          '<span>' + esc(c[0]) + '</span>' +
-          '<span class="tile-rarity-glyph" data-tier="' + esc(rInfo.tier) + '" title="' + esc(rInfo.name) + '">' + GEM_SVG + '</span>' +
-        '</div>' +
-        '<div class="tile-name">' + esc(c[3]) + '</div>' +
-        '<div class="tile-tags">' +
-          '<span class="pip" style="background:' + colorHex + '" title="' + esc(COLOR_NAME[c[6]]||c[6]) + '"></span>' +
-          '<span class="rarity-pill" data-tier="' + rInfo.tier + '" title="' + esc(rInfo.name) + '">' + esc(c[4]) + '</span>' +
-          '<span class="type-tag">' + esc(TYPE_NAME[c[5]]||c[5]) + '</span>' +
-        '</div>' +
-      '</button>' +
-      '<button type="button" class="tile-wish" data-wish-id="' + esc(c[0]) + '" data-wished="' + wished + '" aria-pressed="' + wished + '" aria-label="' + esc(wishLabel) + '" title="' + esc(wishLabel) + '"' + dis + '>' + WISH_SVG + '</button>' +
-    '</div>'
-  );
 }
 
 function esc(s){
@@ -240,21 +344,172 @@ function esc(s){
     return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[m];
   });
 }
+function cssEsc(s){ return String(s).replace(/"/g, '\\"'); }
+function getSetEl(code){ return document.querySelector('.set[data-code="' + cssEsc(code) + '"]'); }
 
-function renderSetBody(code){
-  var body = document.querySelector('.set[data-code="' + cssEsc(code) + '"] .card-grid');
-  if (!body) return;
-  var list = (CARDS_BY_SET[code] || []).filter(cardMatches);
-  if (!list.length) {
-    body.innerHTML = '<div class="empty-note">No cards match the current filters in this set.</div>';
-    return;
-  }
-  var html = "";
-  for (var i = 0; i < list.length; i++) html += tileHtml(list[i]);
-  body.innerHTML = html;
+function artHtml(c){
+  var img = c[8];
+  if (img) return '<div class="tile-art"><img src="data:image/webp;base64,' + img + '" alt="" loading="lazy" decoding="async" width="80" height="111"></div>';
+  var colorHex = COLOR_HEX[c[6]] || "var(--c-colorless)";
+  return '<div class="tile-art tile-art-empty" style="background:' + colorHex + '"><span>' + esc(c[3].slice(0,1)) + '</span></div>';
 }
 
-function cssEsc(s){ return String(s).replace(/"/g, '\\"'); }
+/* One card, in one of two shapes: the default grid tile (art, number, name,
+   tags) or a binder pocket (art and number only, like a sleeve in a real
+   binder). Both use the same .card-tile button, so the click handling,
+   ownership state and foil effects are shared. */
+function tileHtml(c, variant){
+  var owned = state.owned.has(c[0]);
+  var wished = state.wishlist.has(c[0]);
+  var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
+  var colorHex = COLOR_HEX[c[6]] || "var(--c-colorless)";
+  var wishLabel = wished ? "Remove from wishlist" : "Add to wishlist";
+  var dis = readOnly ? " disabled" : "";
+  var pocket = variant === "pocket";
+  var inner;
+  if (pocket) {
+    inner =
+      artHtml(c) +
+      '<span class="tile-check">' + CHECK_SVG + '</span>' +
+      '<span class="pocket-num mono">' + esc(c[2]) + '</span>';
+  } else {
+    inner =
+      artHtml(c) +
+      '<span class="tile-check">' + CHECK_SVG + '</span>' +
+      '<div class="tile-num mono">' +
+        '<span>' + esc(c[0]) + '</span>' +
+        '<span class="tile-rarity-glyph" data-tier="' + esc(rInfo.tier) + '" title="' + esc(rInfo.name) + '">' + GEM_SVG + '</span>' +
+      '</div>' +
+      '<div class="tile-name">' + esc(c[3]) + '</div>' +
+      '<div class="tile-tags">' +
+        '<span class="pip" style="background:' + colorHex + '" title="' + esc(COLOR_NAME[c[6]]||c[6]) + '"></span>' +
+        '<span class="rarity-pill" data-tier="' + rInfo.tier + '" title="' + esc(rInfo.name) + '">' + esc(c[4]) + '</span>' +
+        '<span class="type-tag">' + esc(TYPE_NAME[c[5]]||c[5]) + '</span>' +
+      '</div>';
+  }
+  return (
+    '<div class="card-tile-wrap' + (pocket ? ' pocket-wrap' : '') + '">' +
+      '<button type="button" class="card-tile' + (pocket ? ' pocket' : '') + '" data-id="' + esc(c[0]) + '" data-owned="' + owned + '" data-tier="' + esc(rInfo.tier) + '" title="' + esc(c[3]) + ' (' + esc(c[0]) + ')"' + dis + '>' +
+        inner +
+      '</button>' +
+      '<button type="button" class="tile-wish" data-wish-id="' + esc(c[0]) + '" data-wished="' + wished + '" aria-pressed="' + wished + '" aria-label="' + esc(wishLabel) + '" title="' + esc(wishLabel) + '"' + dis + '>' + WISH_SVG + '</button>' +
+      '<button type="button" class="tile-zoom" data-zoom-id="' + esc(c[0]) + '" aria-label="Card details: ' + esc(c[3]) + '" title="Card details">' + ZOOM_SVG + '</button>' +
+    '</div>'
+  );
+}
+
+/* ===== Binder pages ===== */
+var BINDER_PAGE = 9; /* 3 x 3 pockets, like a standard trading card page */
+var binderMQ = window.matchMedia ? window.matchMedia("(min-width: 880px)") : null;
+
+function binderPerView(){ return binderMQ && binderMQ.matches ? 2 : 1; }
+
+function binderMeta(code){
+  var list = (CARDS_BY_SET[code] || []).filter(cardMatches);
+  var per = binderPerView();
+  var pages = Math.max(1, Math.ceil(list.length / BINDER_PAGE));
+  return { list: list, per: per, pages: pages, lastFirst: Math.floor((pages - 1) / per) * per };
+}
+
+function binderPageLabel(first, per, pages){
+  if (per === 2 && first + 1 < pages) return "Pages " + (first + 1) + "–" + (first + 2) + " of " + pages;
+  return "Page " + (first + 1) + " of " + pages;
+}
+
+function renderBinder(setEl, code, list, opts){
+  opts = opts || {};
+  var host = setEl.querySelector(".binder");
+  var m = binderMeta(code);
+  var first = Math.min(ui.binderPage[code] || 0, m.lastFirst);
+  first -= first % m.per;
+  ui.binderPage[code] = first;
+
+  var html = '<div class="binder-spread' + (m.per === 2 ? ' two' : '') + (opts.turn ? ' ' + opts.turn : '') + '">';
+  for (var p = 0; p < m.per; p++) {
+    var pi = first + p;
+    if (pi >= m.pages) { html += '<div class="binder-page blank" aria-hidden="true"></div>'; continue; }
+    var slice = m.list.slice(pi * BINDER_PAGE, pi * BINDER_PAGE + BINDER_PAGE);
+    html += '<div class="binder-page ' + (p === 0 ? 'left' : 'right') + '"><div class="pocket-grid">';
+    for (var k = 0; k < slice.length; k++) html += tileHtml(slice[k], "pocket");
+    for (var e = slice.length; e < BINDER_PAGE; e++) html += '<div class="pocket-empty" aria-hidden="true"></div>';
+    html += '</div><div class="page-foot"><span class="page-no mono">Page ' + (pi + 1) + '</span><span class="page-own mono"></span></div></div>';
+  }
+  html += '</div>';
+
+  var stage = host.querySelector(".binder-stage");
+  if (stage && opts.keepPager) {
+    stage.innerHTML = html;
+  } else {
+    var pager = '';
+    if (m.pages > m.per) {
+      pager =
+        '<div class="binder-pager">' +
+          '<button type="button" class="pager-btn" data-act="page-prev" data-code="' + esc(code) + '" aria-label="Previous pages"' + (first <= 0 ? ' disabled' : '') + '>' + CHEV_L_SVG + '</button>' +
+          '<input type="range" class="pager-range" data-code="' + esc(code) + '" min="1" max="' + (m.lastFirst + 1) + '" step="' + m.per + '" value="' + (first + 1) + '" aria-label="Turn to page">' +
+          '<button type="button" class="pager-btn" data-act="page-next" data-code="' + esc(code) + '" aria-label="Next pages"' + (first >= m.lastFirst ? ' disabled' : '') + '>' + CHEV_R_SVG + '</button>' +
+          '<span class="pager-label mono"></span>' +
+        '</div>';
+    }
+    host.innerHTML = '<div class="binder-stage" tabindex="-1">' + html + '</div>' + pager;
+  }
+  var label = host.querySelector(".pager-label");
+  if (label) label.textContent = binderPageLabel(first, m.per, m.pages);
+  var prev = host.querySelector('[data-act="page-prev"]'), next = host.querySelector('[data-act="page-next"]');
+  if (prev) prev.disabled = first <= 0;
+  if (next) next.disabled = first >= m.lastFirst;
+  refreshBinderCounts(setEl);
+}
+
+/* Each visible page shows how many of its pockets are filled, so you can see
+   at a glance which page still has gaps. */
+function refreshBinderCounts(root){
+  (root || document).querySelectorAll(".binder-page").forEach(function(page){
+    var tiles = page.querySelectorAll(".pocket");
+    if (!tiles.length) return;
+    var own = 0;
+    for (var i = 0; i < tiles.length; i++) if (tiles[i].getAttribute("data-owned") === "true") own++;
+    var out = page.querySelector(".page-own");
+    if (out) {
+      out.textContent = own + " / " + tiles.length;
+      out.classList.toggle("full", own === tiles.length);
+    }
+  });
+}
+
+function turnBinder(code, target, opts){
+  var m = binderMeta(code);
+  var cur = ui.binderPage[code] || 0;
+  var first = Math.max(0, Math.min(m.lastFirst, target));
+  first -= first % m.per;
+  if (first === cur && !(opts && opts.force)) return;
+  var dir = first > cur ? "turn-next" : "turn-prev";
+  ui.binderPage[code] = first;
+  renderSetBody(code, { turn: dir, keepPager: !!(opts && opts.keepPager) });
+}
+
+function renderSetBody(code, opts){
+  var setEl = getSetEl(code);
+  if (!setEl) return;
+  var grid = setEl.querySelector(".card-grid");
+  var binder = setEl.querySelector(".binder");
+  var isBinder = ui.layout === "binder";
+  grid.hidden = isBinder;
+  binder.hidden = !isBinder;
+  var list = (CARDS_BY_SET[code] || []).filter(cardMatches);
+  var target = isBinder ? binder : grid;
+  if (!list.length) {
+    target.innerHTML = '<div class="empty-note">No cards match the current filters in this set.</div>';
+    return;
+  }
+  if (isBinder) {
+    renderBinder(setEl, code, list, opts);
+    return;
+  }
+  var sorted = sortCards(list);
+  var html = "";
+  for (var i = 0; i < sorted.length; i++) html += tileHtml(sorted[i]);
+  grid.innerHTML = html;
+}
 
 /* Tracks each set's last-known completion state so we can tell a genuine
    "just finished this set" transition (worth a celebration) apart from a
@@ -264,7 +519,7 @@ function cssEsc(s){ return String(s).replace(/"/g, '\\"'); }
 var setCompletionKnown = {};
 
 function refreshSetHead(code){
-  var el = document.querySelector('.set[data-code="' + cssEsc(code) + '"]');
+  var el = getSetEl(code);
   if (!el) return;
   var st = setStats(code);
   var pct = st.total ? st.owned / st.total : 0;
@@ -275,6 +530,20 @@ function refreshSetHead(code){
   if (isComplete && setCompletionKnown[code] === false) celebrateSetComplete(el);
   setCompletionKnown[code] = isComplete;
 }
+
+function refreshGroupHeads(){
+  document.querySelectorAll(".group-label").forEach(function(lbl){
+    var st = groupStats(lbl.getAttribute("data-group"));
+    var out = lbl.querySelector(".group-count");
+    if (out) out.textContent = fmtInt(st.owned) + " / " + fmtInt(st.total);
+  });
+}
+
+function renderAllSetHeads(){
+  SET_META.forEach(function(s){ refreshSetHead(s[0]); });
+  refreshGroupHeads();
+}
+
 
 /* A brief, one-time gold/rose spark burst over a set's completion badge the
    moment its last card is checked off. Rendered fixed-position on <body> so
@@ -306,10 +575,6 @@ function celebrateSetComplete(setEl){
   }
   document.body.appendChild(burst);
   setTimeout(function(){ burst.remove(); }, 950);
-}
-
-function renderAllSetHeads(){
-  SET_META.forEach(function(s){ refreshSetHead(s[0]); });
 }
 
 /* Cursor-tracked holo highlight for the top rarity tiers: a soft light spot
@@ -348,24 +613,43 @@ function wireFoilTracking(){
   });
 }
 
-/* ===== Wishlist summary: everything on the list, flattened ===== */
+/* ===== Wishlist page: everything on the list, flattened ===== */
 function renderWishlistSummary(){
-  var wrap = document.getElementById("wishlistSummary");
+  var wrap = byId("wishlistSummary");
   if (!wrap) return;
   if (filters.view !== "wishlist") { wrap.hidden = true; return; }
   wrap.hidden = false;
-  var list = CARDS.filter(cardMatches);
-  var countEl = document.getElementById("wishlistSummaryCount");
+  var list = CARDS.filter(cardMatches).sort(compareReleaseOrder);
+  var countEl = byId("wishlistSummaryCount");
   if (countEl) countEl.textContent = list.length + (list.length === 1 ? " card" : " cards");
-  var grid = document.getElementById("wishlistSummaryGrid");
+  var grid = byId("wishlistSummaryGrid");
   if (!grid) return;
   if (!list.length) {
-    grid.innerHTML = '<div class="empty-note">No wishlist cards match the current filters.</div>';
+    grid.innerHTML = state.wishlist.size
+      ? '<div class="empty-note">No wishlist cards match the current filters.</div>'
+      : '<div class="empty-note">Your wishlist is empty. Tap the heart on any card to add it.</div>';
     return;
   }
   var html = "";
   for (var i = 0; i < list.length; i++) html += tileHtml(list[i]);
   grid.innerHTML = html;
+}
+
+function anyFilterActive(){
+  return !!(filters.q || filters.color || filters.rarity || filters.type || filters.view === "owned" || filters.view === "missing");
+}
+
+/* The line under the toolbar: how many cards the current filters match, and a
+   one-click way back to everything. Hidden when nothing is filtered. */
+function updateToolbarNote(){
+  var note = byId("toolbarNote");
+  if (!note) return;
+  var active = anyFilterActive();
+  note.hidden = !active;
+  if (!active) return;
+  var matches = CARDS.filter(cardMatches).length;
+  var base = filters.view === "wishlist" ? state.wishlist.size : CARDS.length;
+  byId("resultNote").textContent = fmtInt(matches) + " of " + fmtInt(base) + " cards match";
 }
 
 function applySearchVisibility(){
@@ -375,9 +659,9 @@ function applySearchVisibility(){
     var list = CARDS_BY_SET[code] || [];
     var matchCount = active ? list.filter(cardMatches).length : list.length;
     if (active && matchCount === 0) {
-      el.style.display = "none";
+      el.hidden = true;
     } else {
-      el.style.display = "";
+      el.hidden = false;
       var shouldOpen = active ? matchCount > 0 : ui.expanded.has(code);
       setOpen(el, shouldOpen, true);
     }
@@ -386,10 +670,11 @@ function applySearchVisibility(){
     var grp = lbl.getAttribute("data-group");
     var anyVisible = false;
     document.querySelectorAll('.set[data-group="' + grp + '"]').forEach(function(el){
-      if (el.style.display !== "none") anyVisible = true;
+      if (!el.hidden) anyVisible = true;
     });
-    lbl.style.display = anyVisible ? "" : "none";
+    lbl.hidden = !anyVisible;
   });
+  updateToolbarNote();
   renderWishlistSummary();
 }
 
@@ -410,13 +695,13 @@ function refreshOpenGrids(){
 }
 
 function buildSetsSkeleton(){
-  var container = document.getElementById("sets");
+  var container = byId("sets");
   var groups = ["Booster", "Starter", "Promo"];
   var html = "";
   groups.forEach(function(grp){
     var setsInGroup = SET_META.filter(function(s){ return s[2] === grp; });
     if (!setsInGroup.length) return;
-    html += '<div class="group-label" data-group="' + grp + '">' + GROUP_NAME[grp] + '</div>';
+    html += '<div class="group-label" data-group="' + grp + '"><span class="group-name">' + GROUP_NAME[grp] + '</span><span class="group-count mono"></span></div>';
     setsInGroup.forEach(function(s){
       var code = s[0], label = s[1];
       var total = (CARDS_BY_SET[code] || []).length;
@@ -424,7 +709,7 @@ function buildSetsSkeleton(){
         '<div class="set" data-code="' + esc(code) + '" data-group="' + grp + '">' +
           '<div class="set-head" role="button" tabindex="0" aria-expanded="false">' +
             '<svg class="chevron" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-            '<div><span class="set-title">' + esc(label) + '</span><span class="set-code mono">' + esc(code) + '</span><span class="set-complete-badge">' + COMPLETE_SVG + 'Complete</span></div>' +
+            '<div class="set-titles"><span class="set-title">' + esc(label) + '</span><span class="set-code mono">' + esc(code) + '</span><span class="set-complete-badge">' + COMPLETE_SVG + 'Complete</span></div>' +
             '<div class="set-bar-wrap"><div class="set-bar"><span style="width:0%"></span></div></div>' +
             '<div class="set-count mono">0 / ' + total + '</div>' +
             '<div class="set-actions">' +
@@ -432,7 +717,7 @@ function buildSetsSkeleton(){
               '<button type="button" data-act="view-missing" data-code="' + esc(code) + '">Show missing</button>' +
             '</div>' +
           '</div>' +
-          '<div class="set-body"><div class="card-grid"></div></div>' +
+          '<div class="set-body"><div class="card-grid" hidden></div><div class="binder" hidden></div></div>' +
         '</div>';
     });
   });
@@ -447,7 +732,7 @@ function populateFilterOptions(){
   fillSelect("filterType", TYPE_ORDER.filter(function(x){ return typesPresent[x]; }), TYPE_NAME);
 }
 function fillSelect(id, values, nameMap, rarityMap){
-  var sel = document.getElementById(id);
+  var sel = byId(id);
   values.forEach(function(v){
     var opt = document.createElement("option");
     opt.value = v;
@@ -456,6 +741,8 @@ function fillSelect(id, values, nameMap, rarityMap){
   });
 }
 
+
+
 /* ===== Save / publish ===== */
 var saveTimer = null;
 var artifactNS = null;
@@ -463,12 +750,14 @@ var capabilityChecked = false;
 var readOnly = false;
 
 function setSyncState(mode){
-  var pill = document.getElementById("syncPill");
-  var label = document.getElementById("syncLabel");
+  var pill = byId("syncPill");
+  var label = byId("syncLabel");
   if (!pill) return;
   pill.setAttribute("data-state", mode);
   label.textContent = mode === "saved" ? "Synced" : mode === "saving" ? "Saving…" : mode === "viewonly" ? "View only" : "Local only";
-  pill.title = mode === "viewonly" ? "You can browse this collection, but only editors can check off cards, log spending, or edit the wishlist here." : "";
+  pill.title = mode === "viewonly"
+    ? "You can browse this collection, but only editors can check off cards, log spending, or edit the wishlist here."
+    : mode === "local" ? "Changes are kept in this browser only." : "";
 }
 
 /* A shared artifact can be opened by someone who can view it but not write to
@@ -486,7 +775,8 @@ function enterReadOnlyMode(){
 function disableWriteControls(){
   /* .set-actions buttons are view-only filters now (Show owned/Show missing),
      not edits, so a read-only viewer keeps using them. */
-  var sel = ".card-tile, .tile-wish, #spendForm button, #spendForm input, .spend-row-del, #importBtn";
+  var sel = ".card-tile, .tile-wish, #spendForm button, #spendForm input, #spendForm select, " +
+            ".spend-row-del, .spend-row-edit, #importBtn, #budgetBody input, #budgetBody button, .cm-own, .cm-wish";
   document.querySelectorAll(sel).forEach(function(el){ el.disabled = true; });
 }
 
@@ -505,8 +795,8 @@ function scheduleSave(){
   saveTimer = setTimeout(doSave, SAVE_IDLE_MS);
 }
 
-function buildDocument(ownedArr, spendingArr, wishlistArr){
-  var stateJson = JSON.stringify({ owned: ownedArr, spending: spendingArr, wishlist: wishlistArr });
+function buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt){
+  var stateJson = JSON.stringify({ owned: ownedArr, spending: spendingArr, wishlist: wishlistArr, budget: budget, savedAt: savedAt });
   return PART_A + stateJson + PART_B1 + SELF_SRC + PART_B2;
 }
 
@@ -514,13 +804,17 @@ function doSave(){
   var ownedArr = Array.from(state.owned);
   var spendingArr = state.spending;
   var wishlistArr = Array.from(state.wishlist);
+  var budget = state.budget || 0;
+  var savedAt = Date.now();
+  try { localStorage.setItem("crb_saved_at", String(savedAt)); } catch(e){}
   try { localStorage.setItem("crb_owned_backup", JSON.stringify(ownedArr)); } catch(e){}
   try { localStorage.setItem("crb_spending_backup", JSON.stringify(spendingArr)); } catch(e){}
   try { localStorage.setItem("crb_wishlist_backup", JSON.stringify(wishlistArr)); } catch(e){}
+  try { localStorage.setItem("crb_budget_backup", JSON.stringify(budget)); } catch(e){}
   ensureArtifact().then(function(ns){
     if (!ns) { setSyncState("local"); return; }
     stashUiState();
-    var html = buildDocument(ownedArr, spendingArr, wishlistArr);
+    var html = buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt);
     ns.publish(html).then(function(){
       /* success reloads this view */
     }).catch(function(err){
@@ -542,6 +836,7 @@ function doSave(){
     });
   });
 }
+
 
 /* ===== Sound ===== */
 /* A soft "pop" when a card goes into the binder, synthesized with the Web
@@ -665,7 +960,78 @@ function wireSoundToggle(){
   });
 }
 
-/* ===== Interactions ===== */
+
+/* ===== Toasts ===== */
+/* A short message at the bottom of the screen, optionally with one action
+   (used for "Undo"). Browsers never show confirm() dialogs inside an
+   artifact, so reversible actions get an undo toast instead. */
+function showToast(msg, opts){
+  opts = opts || {};
+  var host = byId("toastHost");
+  if (!host) return;
+  while (host.children.length >= 3) host.removeChild(host.firstChild);
+  var el = document.createElement("div");
+  el.className = "toast" + (opts.kind ? " toast-" + opts.kind : "");
+  var text = document.createElement("span");
+  text.className = "toast-msg";
+  text.textContent = msg;
+  el.appendChild(text);
+  var timer = null;
+  function close(){
+    clearTimeout(timer);
+    if (el.parentNode) el.parentNode.removeChild(el);
+  }
+  if (opts.actionLabel && opts.onAction) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-act";
+    btn.textContent = opts.actionLabel;
+    btn.addEventListener("click", function(){ close(); opts.onAction(); });
+    el.appendChild(btn);
+  }
+  host.appendChild(el);
+  timer = setTimeout(close, opts.ms || (opts.onAction ? 7000 : 3800));
+}
+
+/* ===== Milestones =====
+   Computed from the collection every time, never stored, so they can't drift
+   out of sync with the cards that earn them. */
+function milestoneList(){
+  var owned = ownedCount(), total = CARDS.length;
+  var sets = countCompleteSets();
+  var foil = ownedTierCount("high");
+  function m(id, name, cur, goal, unit){
+    return { id: id, name: name, cur: cur, goal: goal, unit: unit, done: goal > 0 && cur >= goal };
+  }
+  return [
+    m("c1",    "First card",      owned, 1,    "cards"),
+    m("c100",  "100 cards",       owned, 100,  "cards"),
+    m("c250",  "250 cards",       owned, 250,  "cards"),
+    m("c500",  "500 cards",       owned, 500,  "cards"),
+    m("c1000", "1,000 cards",     owned, 1000, "cards"),
+    m("c1500", "1,500 cards",     owned, 1500, "cards"),
+    m("all",   "Full collection", owned, total, "cards"),
+    m("s1",    "First set",       sets,  1,    "sets"),
+    m("s5",    "5 sets",          sets,  5,    "sets"),
+    m("s10",   "10 sets",         sets,  10,   "sets"),
+    m("f1",    "First foil",      foil,  1,    "foil cards"),
+    m("f25",   "Foil hunter",     foil,  25,   "foil cards")
+  ];
+}
+function milestoneSnapshot(){
+  var out = {};
+  milestoneList().forEach(function(x){ out[x.id] = x; });
+  return out;
+}
+function announceMilestones(before){
+  var fresh = [];
+  milestoneList().forEach(function(x){
+    if (x.done && before[x.id] && !before[x.id].done) fresh.push(x.name);
+  });
+  if (fresh.length) showToast("Milestone unlocked: " + fresh.join(", "), { kind: "gold", ms: 5200 });
+}
+
+/* ===== Ownership and wishlist changes ===== */
 function toggleCard(id){
   if (state.owned.has(id)) state.owned.delete(id); else state.owned.add(id);
 }
@@ -675,8 +1041,8 @@ function toggleWishlist(id){
 }
 
 function updateWishlistBadge(){
-  var btn = document.getElementById("navWishlistTab");
-  if (btn) btn.textContent = "Wishlist (" + state.wishlist.size + ")";
+  var out = byId("wishlistCount");
+  if (out) out.textContent = state.wishlist.size;
 }
 
 /* Switches the ownership view (All/Owned/Missing/Wishlist) -- shared by the
@@ -685,6 +1051,7 @@ function updateWishlistBadge(){
    Nothing here ever changes state.owned/state.wishlist. */
 function setOwnershipView(view){
   filters.view = view;
+  ui.binderPage = {};
   document.querySelectorAll(".ownership-seg button").forEach(function(b){
     b.setAttribute("aria-pressed", b.getAttribute("data-view") === view ? "true" : "false");
   });
@@ -692,17 +1059,35 @@ function setOwnershipView(view){
   applySearchVisibility();
 }
 
-function onWishClick(e){
-  var btn = e.target.closest ? e.target.closest(".tile-wish") : null;
-  if (!btn) return false;
-  e.stopPropagation();
-  var id = btn.getAttribute("data-wish-id");
+/* Every place a card can appear (set grid, binder pocket, wishlist list,
+   detail view) is updated from here, so a change made anywhere shows up
+   everywhere without re-rendering whole pages. */
+function applyOwnedToggle(id){
+  var before = milestoneSnapshot();
+  toggleCard(id);
+  var nowOwned = state.owned.has(id);
+  playPop(nowOwned);
+  document.querySelectorAll('.card-tile[data-id="' + cssEsc(id) + '"]').forEach(function(el){
+    el.setAttribute("data-owned", nowOwned);
+  });
+  var card = CARD_BY_ID[id];
+  if (card) refreshSetHead(card[1]);
+  refreshGroupHeads();
+  renderTopProgress();
+  refreshBinderCounts();
+  if (nowOwned) announceMilestones(before);
+  paintCardModal();
+  scheduleSave();
+  return nowOwned;
+}
+
+function applyWishToggle(id){
   toggleWishlist(id);
   var nowWished = state.wishlist.has(id);
   var label = nowWished ? "Remove from wishlist" : "Add to wishlist";
   /* A card can appear twice at once -- once in its set body, once in the
-     flat wishlist summary below -- so mirror the change onto every copy
-     rather than just the button that was clicked. */
+     flat wishlist list -- so mirror the change onto every copy rather than
+     just the button that was clicked. */
   document.querySelectorAll('.tile-wish[data-wish-id="' + cssEsc(id) + '"]').forEach(function(b){
     b.setAttribute("data-wished", nowWished);
     b.setAttribute("aria-pressed", nowWished);
@@ -712,30 +1097,59 @@ function onWishClick(e){
   updateWishlistBadge();
   if (filters.view === "wishlist") {
     /* Membership itself changed, so re-render rather than patch: the card
-       needs to disappear from (or reappear in) both the open set body and
-       the summary grid. */
-    refreshOpenGrids();
+       needs to disappear from (or reappear in) the list. */
     renderWishlistSummary();
+    updateToolbarNote();
+    if (!nowWished) {
+      var c = CARD_BY_ID[id];
+      showToast("Removed " + (c ? c[3] : "card") + " from your wishlist", {
+        actionLabel: "Undo",
+        onAction: function(){ applyWishToggle(id); }
+      });
+    }
   }
+  paintCardModal();
   scheduleSave();
+  return nowWished;
+}
+
+function onWishClick(e){
+  var btn = e.target.closest ? e.target.closest(".tile-wish") : null;
+  if (!btn) return false;
+  e.stopPropagation();
+  applyWishToggle(btn.getAttribute("data-wish-id"));
   return true;
 }
 
+function onZoomClick(e){
+  var btn = e.target.closest ? e.target.closest(".tile-zoom") : null;
+  if (!btn) return false;
+  e.stopPropagation();
+  openCardModal(btn.getAttribute("data-zoom-id"), contextIdsFor(btn), btn);
+  return true;
+}
+
+/* A swipe that turns a binder page can end on a pocket; the browser would
+   then also fire a click and toggle that card. Swipes set this to swallow it. */
+var suppressClickUntil = 0;
+
 function onGridClick(e){
+  if (Date.now() < suppressClickUntil) return;
   var tile = e.target.closest ? e.target.closest(".card-tile") : null;
   if (!tile) return;
-  var id = tile.getAttribute("data-id");
-  toggleCard(id);
-  var nowOwned = state.owned.has(id);
-  playPop(nowOwned);
-  document.querySelectorAll('.card-tile[data-id="' + cssEsc(id) + '"]').forEach(function(el){
-    el.setAttribute("data-owned", nowOwned);
-  });
-  var setEl = tile.closest(".set");
-  if (setEl) refreshSetHead(setEl.getAttribute("data-code"));
-  else renderAllSetHeads(); /* toggled from the wishlist summary, which has no .set ancestor */
-  renderTopProgress();
-  scheduleSave();
+  applyOwnedToggle(tile.getAttribute("data-id"));
+}
+
+function onPagerClick(e){
+  var btn = e.target.closest ? e.target.closest("[data-act]") : null;
+  if (!btn) return false;
+  var act = btn.getAttribute("data-act");
+  if (act !== "page-prev" && act !== "page-next") return false;
+  e.stopPropagation();
+  var code = btn.getAttribute("data-code");
+  var per = binderPerView();
+  turnBinder(code, (ui.binderPage[code] || 0) + (act === "page-next" ? per : -per));
+  return true;
 }
 
 function onSetsClick(e){
@@ -744,8 +1158,9 @@ function onSetsClick(e){
     e.stopPropagation();
     var act = actBtn.getAttribute("data-act");
     var code = actBtn.getAttribute("data-code");
+    if (act !== "view-owned" && act !== "view-missing") return;
     setOwnershipView(act === "view-owned" ? "owned" : "missing");
-    var setEl = document.querySelector('.set[data-code="' + cssEsc(code) + '"]');
+    var setEl = getSetEl(code);
     if (setEl) {
       if (!setEl.classList.contains("open")) playSlide(true);
       setOpen(setEl, true);
@@ -762,6 +1177,19 @@ function onSetsClick(e){
 }
 
 function onSetsKeydown(e){
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    var binder = e.target.closest ? e.target.closest(".binder") : null;
+    var isRange = e.target.classList && e.target.classList.contains("pager-range");
+    if (binder && !isRange) {
+      e.preventDefault();
+      var code = binder.closest(".set").getAttribute("data-code");
+      var per = binderPerView();
+      turnBinder(code, (ui.binderPage[code] || 0) + (e.key === "ArrowRight" ? per : -per));
+      var stage = binder.querySelector(".binder-stage");
+      if (stage) stage.focus({ preventScroll: true });
+      return;
+    }
+  }
   if (e.key !== "Enter" && e.key !== " ") return;
   var head = e.target.closest ? e.target.closest(".set-head") : null;
   if (!head) return;
@@ -770,6 +1198,35 @@ function onSetsKeydown(e){
   var willOpen = !setEl.classList.contains("open");
   playSlide(willOpen);
   setOpen(setEl, willOpen);
+}
+
+/* Touch swipe to turn binder pages. Mouse users have the pager buttons, the
+   slider and the arrow keys. */
+var swipe = null;
+function wireBinderSwipe(){
+  var host = byId("sets");
+  host.addEventListener("pointerdown", function(e){
+    var stage = e.target.closest ? e.target.closest(".binder-stage") : null;
+    if (!stage || e.pointerType === "mouse") { swipe = null; return; }
+    swipe = { x: e.clientX, y: e.clientY, code: stage.closest(".set").getAttribute("data-code") };
+  });
+  host.addEventListener("pointerup", function(e){
+    if (!swipe) return;
+    var dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+    var s = swipe;
+    swipe = null;
+    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+      suppressClickUntil = Date.now() + 400;
+      turnBinder(s.code, (ui.binderPage[s.code] || 0) + (dx < 0 ? 1 : -1) * binderPerView());
+    }
+  });
+  host.addEventListener("pointercancel", function(){ swipe = null; });
+  host.addEventListener("input", function(e){
+    var t = e.target;
+    if (t.classList && t.classList.contains("pager-range")) {
+      turnBinder(t.getAttribute("data-code"), parseInt(t.value, 10) - 1, { keepPager: true });
+    }
+  });
 }
 
 function debounce(fn, ms){
@@ -781,8 +1238,467 @@ function debounce(fn, ms){
   };
 }
 
+/* ===== Card detail view ===== */
+var cardModal = { ids: [], idx: 0, trigger: null };
+
+/* The cards "around" a tile, in the order the person is looking at them, so
+   the arrows in the detail view step through the same list. */
+function contextIdsFor(el){
+  var list = null;
+  var setEl = el.closest ? el.closest(".set") : null;
+  if (setEl) {
+    list = (CARDS_BY_SET[setEl.getAttribute("data-code")] || []).filter(cardMatches);
+    if (ui.layout === "grid") list = sortCards(list);
+  } else if (el.closest && el.closest("#wishlistSummaryGrid")) {
+    list = CARDS.filter(cardMatches).sort(compareReleaseOrder);
+  }
+  return list ? list.map(function(c){ return c[0]; }) : null;
+}
+
+function cardModalOpen(){ return !byId("cardOverlay").hidden; }
+
+function openCardModal(id, ids, trigger){
+  if (!CARD_BY_ID[id]) return;
+  var list = (ids && ids.length) ? ids : [id];
+  var idx = list.indexOf(id);
+  if (idx < 0) { list = [id]; idx = 0; }
+  cardModal.ids = list;
+  cardModal.idx = idx;
+  cardModal.trigger = trigger || document.activeElement;
+  byId("cardOverlay").hidden = false;
+  renderCardModal();
+  document.body.classList.add("modal-open");
+  var closeBtn = byId("cmClose");
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeCardModal(){
+  byId("cardOverlay").hidden = true;
+  document.body.classList.remove("modal-open");
+  var t = cardModal.trigger;
+  cardModal.trigger = null;
+  if (t && t.focus && document.body.contains(t)) { try { t.focus({ preventScroll: true }); } catch(e){} }
+}
+
+function stepCardModal(dir){
+  var next = cardModal.idx + dir;
+  if (next < 0 || next >= cardModal.ids.length) return;
+  cardModal.idx = next;
+  renderCardModal();
+  var focusTarget = byId(dir > 0 ? "cmNext" : "cmPrev");
+  if (focusTarget && !focusTarget.disabled) focusTarget.focus();
+  else if (byId("cmClose")) byId("cmClose").focus();
+}
+
+function renderCardModal(){
+  var id = cardModal.ids[cardModal.idx];
+  var c = CARD_BY_ID[id];
+  if (!c) return;
+  var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
+  var colorHex = COLOR_HEX[c[6]] || "var(--c-colorless)";
+  var art = c[8]
+    ? '<img src="data:image/webp;base64,' + c[8] + '" alt="' + esc(c[3]) + '" width="80" height="111">'
+    : '<div class="cm-art-empty" style="background:' + colorHex + '">' + esc(c[3].slice(0, 1)) + '</div>';
+  var multi = cardModal.ids.length > 1;
+  var html =
+    '<button type="button" class="modal-close cm-close" id="cmClose" data-cm="close" aria-label="Close card details">&times;</button>' +
+    '<div class="cm-stage">' +
+      '<button type="button" class="cm-nav" id="cmPrev" data-cm="prev" aria-label="Previous card"' + (cardModal.idx <= 0 ? ' disabled' : '') + (multi ? '' : ' hidden') + '>' + CHEV_L_SVG + '</button>' +
+      '<div class="cm-art" id="cmArt" data-tier="' + esc(rInfo.tier) + '" data-owned="false">' + art + '</div>' +
+      '<button type="button" class="cm-nav" id="cmNext" data-cm="next" aria-label="Next card"' + (cardModal.idx >= cardModal.ids.length - 1 ? ' disabled' : '') + (multi ? '' : ' hidden') + '>' + CHEV_R_SVG + '</button>' +
+    '</div>' +
+    '<div class="cm-info">' +
+      '<p class="cm-set"><span class="mono">' + esc(c[1]) + '</span>' + esc(SET_LABEL[c[1]] || c[7] || "") + '</p>' +
+      '<h2 class="cm-name">' + esc(c[3]) + '</h2>' +
+      '<dl class="cm-facts">' +
+        '<div><dt>Number</dt><dd class="mono">' + esc(c[0]) + '</dd></div>' +
+        '<div><dt>Rarity</dt><dd><span class="rarity-pill" data-tier="' + esc(rInfo.tier) + '">' + esc(c[4]) + '</span> ' + esc(rInfo.name) + '</dd></div>' +
+        '<div><dt>Color</dt><dd><span class="pip" style="background:' + colorHex + '"></span>' + esc(COLOR_NAME[c[6]] || c[6]) + '</dd></div>' +
+        '<div><dt>Type</dt><dd>' + esc(TYPE_NAME[c[5]] || c[5]) + '</dd></div>' +
+        (c[7] && c[7] !== SET_LABEL[c[1]] ? '<div class="cm-wide"><dt>Product</dt><dd>' + esc(c[7]) + '</dd></div>' : '') +
+      '</dl>' +
+      '<div class="cm-actions">' +
+        '<button type="button" class="iconbtn cm-own" id="cmOwn" data-cm="own"></button>' +
+        '<button type="button" class="iconbtn cm-wish" id="cmWish" data-cm="wish"></button>' +
+      '</div>' +
+      '<button type="button" class="linkbtn cm-goto" data-cm="goto">Show in the binder</button>' +
+      '<p class="cm-pos mono">' + (cardModal.idx + 1) + ' of ' + cardModal.ids.length + '</p>' +
+    '</div>';
+  byId("cardModal").innerHTML = html;
+  paintCardModal();
+}
+
+/* Updates only the ownership and wishlist buttons, so toggling a card from
+   inside the detail view doesn't rebuild it and lose keyboard focus. */
+function paintCardModal(){
+  if (!cardModalOpen()) return;
+  var id = cardModal.ids[cardModal.idx];
+  var own = byId("cmOwn"), wish = byId("cmWish"), art = byId("cmArt");
+  if (!own || !wish) return;
+  var owned = state.owned.has(id), wished = state.wishlist.has(id);
+  if (art) art.setAttribute("data-owned", owned);
+  own.setAttribute("aria-pressed", owned);
+  own.classList.toggle("is-on", owned);
+  own.innerHTML = CHECK_SVG + '<span>' + (owned ? "In your collection" : "Add to collection") + '</span>';
+  wish.setAttribute("aria-pressed", wished);
+  wish.classList.toggle("is-on", wished);
+  wish.innerHTML = WISH_SVG + '<span>' + (wished ? "On your wishlist" : "Add to wishlist") + '</span>';
+  own.disabled = readOnly;
+  wish.disabled = readOnly;
+}
+
+function onCardModalClick(e){
+  if (e.target === byId("cardOverlay")) { closeCardModal(); return; }
+  var btn = e.target.closest ? e.target.closest("[data-cm]") : null;
+  if (!btn) return;
+  var act = btn.getAttribute("data-cm");
+  var id = cardModal.ids[cardModal.idx];
+  if (act === "close") closeCardModal();
+  else if (act === "prev") stepCardModal(-1);
+  else if (act === "next") stepCardModal(1);
+  else if (act === "own") applyOwnedToggle(id);
+  else if (act === "wish") applyWishToggle(id);
+  else if (act === "goto") { closeCardModal(); jumpToCard(id); }
+}
+
+function onCardModalKey(e){
+  if (!cardModalOpen()) return false;
+  if (e.key === "Escape") { closeCardModal(); return true; }
+  if (e.key === "ArrowLeft") { stepCardModal(-1); return true; }
+  if (e.key === "ArrowRight") { stepCardModal(1); return true; }
+  if (e.key === "Tab") {
+    var f = byId("cardModal").querySelectorAll("button:not([disabled]):not([hidden])");
+    if (!f.length) return false;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return true;
+  }
+  return false;
+}
+
+/* The same light-catching tilt the foil tiles have, on the large card. */
+function wireCardModalTilt(){
+  var modal = byId("cardModal");
+  modal.addEventListener("pointermove", function(e){
+    if (e.pointerType === "touch") return;
+    var art = e.target.closest ? e.target.closest('.cm-art[data-tier="high"]') : null;
+    if (!art) return;
+    var r = art.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    var px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+    art.style.setProperty("--mx", (px * 100).toFixed(1) + "%");
+    art.style.setProperty("--my", (py * 100).toFixed(1) + "%");
+    art.style.setProperty("--rx", ((0.5 - py) * 10).toFixed(2) + "deg");
+    art.style.setProperty("--ry", ((px - 0.5) * 10).toFixed(2) + "deg");
+  });
+  modal.addEventListener("pointerout", function(e){
+    var art = e.target.closest ? e.target.closest(".cm-art") : null;
+    if (!art || (e.relatedTarget && art.contains(e.relatedTarget))) return;
+    art.style.setProperty("--rx", "0deg");
+    art.style.setProperty("--ry", "0deg");
+  });
+}
+
+/* ===== Jumping around: from the overview or a card's detail into the binder ===== */
+function jumpToSet(code, opts){
+  opts = opts || {};
+  setTab("collection");
+  if (opts.missing) setOwnershipView("missing");
+  ui.expanded.add(code);
+  var setEl = getSetEl(code);
+  if (!setEl) return;
+  setEl.hidden = false;
+  setOpen(setEl, true);
+  setEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function jumpToCard(id){
+  var c = CARD_BY_ID[id];
+  if (!c) return;
+  clearFilters(true);
+  setTab("collection");
+  var code = c[1];
+  ui.expanded.add(code);
+  var list = CARDS_BY_SET[code] || [];
+  ui.binderPage[code] = Math.floor(list.indexOf(c) / BINDER_PAGE);
+  var setEl = getSetEl(code);
+  if (!setEl) return;
+  setEl.hidden = false;
+  setOpen(setEl, true);
+  requestAnimationFrame(function(){
+    var tile = setEl.querySelector('.card-tile[data-id="' + cssEsc(id) + '"]');
+    if (!tile) { setEl.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    tile.scrollIntoView({ behavior: "smooth", block: "center" });
+    tile.classList.add("flash");
+    setTimeout(function(){ tile.classList.remove("flash"); }, 1800);
+  });
+}
+
+
+
+/* ===== Overview ===== */
+var shelfIds = [];
+
+function ovPanel(cls, title, sub, body, aside){
+  return '<section class="panel ' + cls + '">' +
+    '<div class="panel-head' + (aside ? ' panel-head-split' : '') + '"><div><h3>' + title + '</h3>' + (sub ? '<p class="panel-sub">' + sub + '</p>' : '') + '</div>' + (aside || '') + '</div>' +
+    body + '</section>';
+}
+
+function pctLabel(frac){
+  var v = frac * 100;
+  return (v > 0 && v < 10) ? v.toFixed(1) + "%" : Math.round(v) + "%";
+}
+
+function ovHeroHtml(){
+  var s = overallStats();
+  var pct = s.total ? s.owned / s.total : 0;
+  var circ = 2 * Math.PI * 52;
+  var spent = totalSpent();
+  var foilTotal = CARDS.filter(function(c){ return (RARITY_INFO[c[4]] || {}).tier === "high"; }).length;
+  var next = null;
+  milestoneList().forEach(function(x){ if (!next && !x.done && x.unit === "cards") next = x; });
+  var nextLine = next
+    ? fmtInt(next.goal - next.cur) + " more " + (next.goal - next.cur === 1 ? "card" : "cards") + " to reach " + next.name.toLowerCase() + "."
+    : "Every card is in the binder.";
+  var ring =
+    '<div class="ov-ring">' +
+      '<svg viewBox="0 0 120 120" aria-hidden="true">' +
+        '<defs><linearGradient id="ovRingGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ecd079"/><stop offset="1" stop-color="#b8862a"/></linearGradient></defs>' +
+        '<circle cx="60" cy="60" r="52" fill="none" stroke="#f1e6c6" stroke-width="10"/>' +
+        '<circle cx="60" cy="60" r="52" fill="none" stroke="url(#ovRingGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + circ.toFixed(2) + '" stroke-dashoffset="' + (circ * (1 - pct)).toFixed(2) + '" transform="rotate(-90 60 60)"/>' +
+      '</svg>' +
+      '<div class="ov-ring-label"><span class="ov-ring-pct">' + pctLabel(pct) + '</span><span class="ov-ring-cap">complete</span></div>' +
+    '</div>';
+  var stats =
+    '<div class="ov-stats">' +
+      '<div class="ov-stat"><span class="ov-stat-val">' + countCompleteSets() + '<small> / ' + SET_META.length + '</small></span><span class="ov-stat-lbl">Sets complete</span></div>' +
+      '<div class="ov-stat"><span class="ov-stat-val">' + fmtInt(ownedTierCount("high")) + '<small> / ' + fmtInt(foilTotal) + '</small></span><span class="ov-stat-lbl">Foil cards</span></div>' +
+      '<div class="ov-stat"><span class="ov-stat-val">' + fmtInt(state.wishlist.size) + '</span><span class="ov-stat-lbl">On wishlist</span></div>' +
+      '<div class="ov-stat"><span class="ov-stat-val">' + fmtMoneyShort(spent) + '</span><span class="ov-stat-lbl">Invested</span></div>' +
+    '</div>';
+  return '<section class="ov-hero">' + ring +
+    '<div class="ov-hero-text">' +
+      '<p class="eyebrow">Your collection</p>' +
+      '<h2 class="ov-count"><span class="ov-count-num">' + fmtInt(s.owned) + '</span><span class="ov-count-of"> of ' + fmtInt(s.total) + ' cards</span></h2>' +
+      '<p class="ov-next">' + esc(nextLine) + '</p>' +
+      stats +
+    '</div></section>';
+}
+
+function ovSetsHtml(){
+  var html = "";
+  ["Booster", "Starter", "Promo"].forEach(function(grp){
+    var sets = SET_META.filter(function(s){ return s[2] === grp; });
+    if (!sets.length) return;
+    var g = groupStats(grp);
+    html += '<div class="ov-group"><span>' + GROUP_NAME[grp] + '</span><span class="mono">' + fmtInt(g.owned) + ' / ' + fmtInt(g.total) + '</span></div><div class="ov-set-list">';
+    sets.forEach(function(s){
+      var st = setStats(s[0]);
+      var frac = st.total ? st.owned / st.total : 0;
+      var done = st.total > 0 && st.owned === st.total;
+      html +=
+        '<button type="button" class="ov-set' + (done ? ' done' : '') + '" data-jump="' + esc(s[0]) + '" title="Open ' + esc(s[1]) + ' in the binder">' +
+          '<span class="ov-set-code mono">' + esc(s[0]) + '</span>' +
+          '<span class="ov-set-name">' + esc(s[1]) + '</span>' +
+          '<span class="ov-bar"><i style="width:' + (frac * 100).toFixed(1) + '%"></i></span>' +
+          '<span class="ov-set-count mono">' + (done ? COMPLETE_SVG : '') + st.owned + ' / ' + st.total + '</span>' +
+        '</button>';
+    });
+    html += '</div>';
+  });
+  return html;
+}
+
+function ovClosestHtml(){
+  var rows = [];
+  SET_META.forEach(function(s){
+    var st = setStats(s[0]);
+    if (st.owned > 0 && st.owned < st.total) rows.push({ code: s[0], label: s[1], owned: st.owned, total: st.total, left: st.total - st.owned });
+  });
+  rows.sort(function(a, b){ return (a.left - b.left) || (b.owned / b.total - a.owned / a.total); });
+  rows = rows.slice(0, 4);
+  if (!rows.length) {
+    return '<p class="empty-note">' + (countCompleteSets() ? 'Every set you have started is complete.' : 'Check off a few cards and the sets you are closest to finishing will show up here.') + '</p>';
+  }
+  var html = '<div class="ov-close-list">';
+  rows.forEach(function(r){
+    html +=
+      '<button type="button" class="ov-close" data-jump-missing="' + esc(r.code) + '" title="Show the cards still missing from ' + esc(r.label) + '">' +
+        '<span class="ov-close-top"><span class="ov-set-code mono">' + esc(r.code) + '</span><span class="ov-close-name">' + esc(r.label) + '</span><span class="ov-close-left mono">' + r.left + ' to go</span></span>' +
+        '<span class="ov-bar"><i style="width:' + (r.owned / r.total * 100).toFixed(1) + '%"></i></span>' +
+      '</button>';
+  });
+  return html + '</div>';
+}
+
+function breakdownRows(kind){
+  var keys, label, swatch, pick;
+  if (kind === "color") {
+    keys = COLOR_ORDER; pick = function(c){ return c[6]; };
+    label = function(k){ return COLOR_NAME[k] || k; };
+    swatch = function(k){ return COLOR_HEX[k]; };
+  } else if (kind === "type") {
+    keys = TYPE_ORDER; pick = function(c){ return c[5]; };
+    label = function(k){ return TYPE_NAME[k] || k; };
+  } else {
+    keys = RARITY_ORDER; pick = function(c){ return c[4]; };
+    label = function(k){ return k + ' <em>' + esc((RARITY_INFO[k] || {}).name || k) + '</em>'; };
+  }
+  var total = {}, own = {};
+  CARDS.forEach(function(c){
+    var k = pick(c);
+    total[k] = (total[k] || 0) + 1;
+    if (state.owned.has(c[0])) own[k] = (own[k] || 0) + 1;
+  });
+  var html = "";
+  keys.forEach(function(k){
+    if (!total[k]) return;
+    var o = own[k] || 0, frac = o / total[k];
+    var name = (kind === "rarity") ? label(k) : esc(label(k));
+    html +=
+      '<div class="bd-row">' +
+        '<span class="bd-label">' + (swatch ? '<i class="pip" style="background:' + swatch(k) + '"></i>' : '') + name + '</span>' +
+        '<span class="ov-bar"><i style="width:' + (frac * 100).toFixed(1) + '%"></i></span>' +
+        '<span class="bd-count mono">' + o + ' / ' + total[k] + '</span>' +
+        '<span class="bd-pct mono">' + Math.round(frac * 100) + '%</span>' +
+      '</div>';
+  });
+  return html;
+}
+
+function renderBreakdown(){
+  var body = byId("breakdownBody");
+  if (!body) return;
+  body.innerHTML = breakdownRows(ui.breakdown);
+  document.querySelectorAll("#breakdownSeg button").forEach(function(b){
+    b.setAttribute("aria-pressed", b.getAttribute("data-bd") === ui.breakdown ? "true" : "false");
+  });
+}
+
+function ovShelfHtml(){
+  var shelf = [];
+  state.owned.forEach(function(id){
+    var c = CARD_BY_ID[id];
+    if (c && (RARITY_INFO[c[4]] || {}).tier === "high") shelf.push(c);
+  });
+  shelf.sort(function(a, b){
+    return (RARITY_RANK[b[4]] - RARITY_RANK[a[4]]) || ((SET_INDEX[b[1]] || 0) - (SET_INDEX[a[1]] || 0)) || compareBinderOrder(a, b);
+  });
+  shelfIds = shelf.map(function(c){ return c[0]; });
+  if (!shelf.length) return '<p class="empty-note">Foil cards you own will be displayed here, rarest first.</p>';
+  var shown = shelf.slice(0, 14);
+  var html = '<div class="shelf">';
+  shown.forEach(function(c){
+    html +=
+      '<button type="button" class="shelf-card" data-shelf="' + esc(c[0]) + '" data-tier="high" title="' + esc(c[3]) + ' (' + esc(c[0]) + ')">' +
+        '<span class="shelf-art">' + (c[8] ? '<img src="data:image/webp;base64,' + c[8] + '" alt="" width="80" height="111">' : '') + '</span>' +
+        '<span class="shelf-code mono">' + esc(c[4]) + '</span>' +
+      '</button>';
+  });
+  html += '</div>';
+  if (shelf.length > shown.length) html += '<p class="panel-foot">Showing the ' + shown.length + ' rarest of ' + shelf.length + '.</p>';
+  return html;
+}
+
+function ovMilestonesHtml(){
+  var html = '<div class="medals">';
+  milestoneList().forEach(function(x){
+    var frac = Math.min(1, x.goal ? x.cur / x.goal : 0);
+    html +=
+      '<div class="medal' + (x.done ? ' done' : '') + '">' +
+        '<span class="medal-icon" aria-hidden="true">' + MEDAL_SVG + '</span>' +
+        '<span class="medal-name">' + esc(x.name) + '</span>' +
+        (x.done ? '<span class="medal-sub">Unlocked</span>' : '<span class="medal-sub mono">' + fmtInt(Math.min(x.cur, x.goal)) + ' / ' + fmtInt(x.goal) + '</span><span class="ov-bar slim"><i style="width:' + (frac * 100).toFixed(1) + '%"></i></span>') +
+      '</div>';
+  });
+  return html + '</div>';
+}
+
+function sparklineSvg(points, w, h){
+  if (!points.length) return "";
+  var pad = 4;
+  var t0 = dayNum(points[0].date), t1 = Math.max(dayNum(points[points.length - 1].date), dayNum(todayLocalISO()));
+  if (t1 === t0) t1 = t0 + 1;
+  var maxV = points[points.length - 1].total || 1;
+  var x = function(t){ return pad + (w - pad * 2) * (t - t0) / (t1 - t0); };
+  var y = function(v){ return h - pad - (h - pad * 2) * v / maxV; };
+  var d = "M" + x(t0).toFixed(1) + "," + y(0).toFixed(1), prev = 0;
+  points.forEach(function(p){
+    var px = x(dayNum(p.date));
+    d += " L" + px.toFixed(1) + "," + y(prev).toFixed(1) + " L" + px.toFixed(1) + "," + y(p.total).toFixed(1);
+    prev = p.total;
+  });
+  d += " L" + x(t1).toFixed(1) + "," + y(prev).toFixed(1);
+  var area = d + " L" + x(t1).toFixed(1) + "," + (h - pad) + " L" + x(t0).toFixed(1) + "," + (h - pad) + " Z";
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Running total of spending">' +
+    '<defs><linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b24a" stop-opacity=".38"/><stop offset="1" stop-color="#d9b24a" stop-opacity="0"/></linearGradient></defs>' +
+    '<path d="' + area + '" fill="url(#sparkFill)" stroke="none"/>' +
+    '<path d="' + d + '" fill="none" stroke="#b8862a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>' +
+  '</svg>';
+}
+
+function ovSpendHtml(){
+  var pts = computeCumulativeSeries();
+  if (!pts.length) {
+    return '<p class="empty-note">No purchases logged yet. Log what you spend and it will be tracked by series and by month.</p>';
+  }
+  var spent = totalSpent();
+  var month = monthTotal(todayLocalISO().slice(0, 7));
+  var recent = state.spending.slice().sort(function(a, b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }).slice(0, 3);
+  var html =
+    '<div class="ov-spend-top">' +
+      '<div><span class="ov-stat-val">' + fmtMoney(spent) + '</span><span class="ov-stat-lbl">Total spent</span></div>' +
+      '<div><span class="ov-stat-val">' + fmtMoney(month) + '</span><span class="ov-stat-lbl">This month</span></div>' +
+    '</div>' +
+    (pts.length >= 2 ? sparklineSvg(pts, 320, 64) : '') +
+    '<ul class="ov-recent">';
+  recent.forEach(function(en){
+    html += '<li><span class="mono">' + esc(fmtDateShort(en.date)) + '</span><span class="ov-recent-what">' + esc(en.note || (en.series ? SET_LABEL[en.series] : "Purchase")) + (en.series ? ' <b class="chip mono">' + esc(en.series) + '</b>' : '') + '</span><span class="mono">' + fmtMoney(en.amount) + '</span></li>';
+  });
+  return html + '</ul>';
+}
+
+function renderOverview(){
+  var host = byId("overviewView");
+  var html = ovHeroHtml();
+  html += '<div class="ov-grid">';
+  html += '<div class="ov-main">' + ovPanel("", "Set progress", "Tap a set to open it in the binder.", ovSetsHtml()) + '</div>';
+  html += '<div class="ov-side">' +
+    ovPanel("", "Closest to complete", "The sets that need the fewest more cards.", ovClosestHtml()) +
+    ovPanel("", "Breakdown", "How much of each group you own.",
+      '<div class="seg" id="breakdownSeg" role="group" aria-label="Breakdown by">' +
+        '<button type="button" data-bd="rarity" aria-pressed="false">Rarity</button>' +
+        '<button type="button" data-bd="color" aria-pressed="false">Color</button>' +
+        '<button type="button" data-bd="type" aria-pressed="false">Type</button>' +
+      '</div><div id="breakdownBody" class="bd-list"></div>') +
+    ovPanel("", "Foil shelf", "Your ultra and secret cards, rarest first.", ovShelfHtml()) +
+  '</div>';
+  html += '</div>';
+  html += '<div class="ov-grid ov-grid-even">' +
+    ovPanel("", "Milestones", "Computed from your collection as you go.", ovMilestonesHtml()) +
+    ovPanel("", "Spending", "", ovSpendHtml(), '<button type="button" class="linkbtn" data-goto="spending">Open spending</button>') +
+  '</div>';
+  host.innerHTML = html;
+  renderBreakdown();
+}
+
+function onOverviewClick(e){
+  var t = e.target.closest ? e.target.closest("[data-jump],[data-jump-missing],[data-bd],[data-shelf],[data-goto]") : null;
+  if (!t) return;
+  if (t.hasAttribute("data-jump")) jumpToSet(t.getAttribute("data-jump"));
+  else if (t.hasAttribute("data-jump-missing")) jumpToSet(t.getAttribute("data-jump-missing"), { missing: true });
+  else if (t.hasAttribute("data-bd")) { ui.breakdown = t.getAttribute("data-bd"); savePrefs(); renderBreakdown(); }
+  else if (t.hasAttribute("data-shelf")) openCardModal(t.getAttribute("data-shelf"), shelfIds, t);
+  else if (t.hasAttribute("data-goto")) setTab(t.getAttribute("data-goto"));
+}
+
+
+
 /* ===== Spending: formatting helpers ===== */
 var MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var MONTH_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function todayLocalISO(){
   var d = new Date();
@@ -803,22 +1719,29 @@ function fmtMoneyShort(n){
   return fmtMoney(n).replace(/\.00$/, "");
 }
 
+/* Whole dollars, for tight spots like the middle of the donut. */
+function fmtWholeMoney(n){
+  return "$" + fmtInt(n);
+}
+
 function fmtMonthLabel(ym){
   var parts = ym.split("-");
-  var mi = parseInt(parts[1], 10) - 1;
-  return MONTH_ABBR[mi] + " '" + parts[0].slice(2);
+  return MONTH_ABBR[parseInt(parts[1], 10) - 1] + " '" + parts[0].slice(2);
 }
 
 function fmtMonthLabelFull(ym){
   var parts = ym.split("-");
-  var mi = parseInt(parts[1], 10) - 1;
-  return MONTH_ABBR[mi] + " " + parts[0];
+  return MONTH_FULL[parseInt(parts[1], 10) - 1] + " " + parts[0];
 }
 
 function fmtDateShort(iso){
   var parts = iso.split("-");
-  var mi = parseInt(parts[1], 10) - 1;
-  return MONTH_ABBR[mi] + " " + parseInt(parts[2], 10) + ", " + parts[0];
+  return MONTH_ABBR[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10) + ", " + parts[0];
+}
+
+function fmtDayMonth(iso){
+  var parts = iso.split("-");
+  return MONTH_ABBR[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
 }
 
 function niceMax(v){
@@ -830,57 +1753,149 @@ function niceMax(v){
   return nice * base;
 }
 
-/* ===== Spending: series computation ===== */
+/* Whole days since 1970 for a YYYY-MM-DD date, so a time axis can place each
+   purchase at its true position instead of spacing them evenly. */
+function dayNum(iso){
+  var p = iso.split("-");
+  return Math.round(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)) / 86400000);
+}
+function isoFromDay(n){ return new Date(n * 86400000).toISOString().slice(0, 10); }
+
+function addMonths(ym, delta){
+  var y = parseInt(ym.slice(0, 4), 10), m = parseInt(ym.slice(5, 7), 10) - 1 + delta;
+  y += Math.floor(m / 12);
+  m = ((m % 12) + 12) % 12;
+  return y + "-" + (m < 9 ? "0" : "") + (m + 1);
+}
+
+function seriesName(code){ return code ? (SET_LABEL[code] || code) : "No specific series"; }
+
+/* ===== Spending: aggregation ===== */
+function totalSpent(){
+  var t = 0;
+  state.spending.forEach(function(en){ t += en.amount; });
+  return t;
+}
+function monthTotal(ym){
+  var t = 0;
+  state.spending.forEach(function(en){ if (en.date.slice(0, 7) === ym) t += en.amount; });
+  return t;
+}
+
+/* "All time", "12 mo", "6 mo", "3 mo": the first day of the window, counting
+   the current month as the last month of it. */
+function rangeStartISO(){
+  if (ui.range === "all") return null;
+  var n = parseInt(ui.range, 10);
+  return addMonths(todayLocalISO().slice(0, 7), -(n - 1)) + "-01";
+}
+
 function computeCumulativeSeries(){
   var byDate = {};
-  state.spending.forEach(function(en){ byDate[en.date] = (byDate[en.date] || 0) + en.amount; });
+  state.spending.forEach(function(en){
+    if (!byDate[en.date]) byDate[en.date] = { date: en.date, sum: 0, items: [] };
+    byDate[en.date].sum += en.amount;
+    byDate[en.date].items.push(en);
+  });
   var dates = Object.keys(byDate).sort();
-  var running = 0;
-  var points = [];
+  var running = 0, points = [];
   dates.forEach(function(d){
-    running += byDate[d];
-    points.push({ date: d, total: running });
+    running += byDate[d].sum;
+    points.push({ date: d, total: running, items: byDate[d].items });
   });
   return points;
 }
 
 function computeMonthlySeries(){
+  var startISO = rangeStartISO();
   var byMonth = {};
   state.spending.forEach(function(en){
+    if (startISO && en.date < startISO) return;
     var ym = en.date.slice(0, 7);
-    byMonth[ym] = (byMonth[ym] || 0) + en.amount;
+    if (!byMonth[ym]) byMonth[ym] = { total: 0, series: {} };
+    byMonth[ym].total += en.amount;
+    byMonth[ym].series[en.series] = (byMonth[ym].series[en.series] || 0) + en.amount;
   });
-  var months = Object.keys(byMonth);
+  var months = Object.keys(byMonth).sort();
   if (!months.length) return [];
-  months.sort();
-  var start = months[0], end = months[months.length - 1];
-  var y = parseInt(start.slice(0, 4), 10), m = parseInt(start.slice(5, 7), 10);
-  var ey = parseInt(end.slice(0, 4), 10), em = parseInt(end.slice(5, 7), 10);
-  var out = [];
-  while (y < ey || (y === ey && m <= em)) {
-    var ym = y + "-" + (m < 10 ? "0" + m : "" + m);
-    out.push({ ym: ym, total: byMonth[ym] || 0 });
-    m++;
-    if (m > 12) { m = 1; y++; }
+  var firstYm = startISO ? startISO.slice(0, 7) : months[0];
+  var lastYm = todayLocalISO().slice(0, 7);
+  if (months[months.length - 1] > lastYm) lastYm = months[months.length - 1];
+  var out = [], ym = firstYm, guard = 0;
+  while (ym <= lastYm && guard++ < 600) {
+    var m = byMonth[ym] || { total: 0, series: {} };
+    out.push({ ym: ym, total: m.total, series: m.series });
+    ym = addMonths(ym, 1);
   }
   return out;
 }
 
-/* ===== Spending: chart geometry ===== */
-var CHART_VB_W = 640, CHART_VB_H = 240;
-var CHART_MARGIN = { top: 16, right: 20, bottom: 30, left: 58 };
+function spendBySeries(){
+  var map = {};
+  state.spending.forEach(function(en){
+    var k = en.series || "";
+    if (!map[k]) map[k] = { code: k, total: 0, count: 0 };
+    map[k].total += en.amount;
+    map[k].count++;
+  });
+  var out = [];
+  for (var k in map) if (map.hasOwnProperty(k)) out.push(map[k]);
+  out.sort(function(a, b){ return b.total - a.total; });
+  return out;
+}
 
-function roundedTopBarPath(x, yTop, w, h, r){
-  if (h <= 0.5) return "";
-  r = Math.min(r, w / 2, h);
-  var yBottom = yTop + h;
-  return "M" + x + "," + yBottom +
-    " L" + x + "," + (yTop + r) +
-    " Q" + x + "," + yTop + " " + (x + r) + "," + yTop +
-    " L" + (x + w - r) + "," + yTop +
-    " Q" + (x + w) + "," + yTop + " " + (x + w) + "," + (yTop + r) +
-    " L" + (x + w) + "," + yBottom +
-    " Z";
+function spendByKind(){
+  var map = {};
+  state.spending.forEach(function(en){ map[en.kind] = (map[en.kind] || 0) + en.amount; });
+  var out = [];
+  SPEND_KINDS.forEach(function(k){ if (map[k.id]) out.push({ kind: k, total: map[k.id] }); });
+  return out;
+}
+
+/* ===== Spending: chart plumbing ===== */
+/* Charts are drawn at the width of the box they sit in (one SVG unit is one
+   CSS pixel), so axis text stays the same readable size on a phone and on a
+   wide desktop instead of shrinking with a fixed-size drawing. */
+var CM = { top: 14, right: 16, bottom: 28, left: 52 };
+
+function chartWidth(wrap){
+  var w = Math.floor(wrap.clientWidth || 0);
+  return w < 240 ? 240 : w;
+}
+
+function yGridHtml(W, yAt, maxY, ticks){
+  var grid = "", labels = "";
+  for (var t = 0; t <= ticks; t++) {
+    var v = maxY * t / ticks, y = yAt(v);
+    grid += '<line x1="' + CM.left + '" y1="' + y.toFixed(1) + '" x2="' + (W - CM.right) + '" y2="' + y.toFixed(1) + '"></line>';
+    labels += '<text class="chart-axis-label mono" x="' + (CM.left - 8) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end">' + esc(fmtMoneyShort(v)) + '</text>';
+  }
+  return '<g class="chart-grid">' + grid + '</g>' + labels;
+}
+
+/* Tick positions along a time axis: months when the span is long, otherwise
+   evenly spaced days. */
+function timeTicks(t0, t1, maxTicks){
+  var span = t1 - t0, ticks = [], i;
+  if (span <= 62) {
+    var steps = [1, 2, 3, 5, 7, 10, 14, 15, 30];
+    var step = steps[steps.length - 1];
+    for (i = 0; i < steps.length; i++) { if (span / steps[i] <= maxTicks - 1) { step = steps[i]; break; } }
+    for (var t = t0; t <= t1; t += step) ticks.push({ t: t, label: fmtDayMonth(isoFromDay(t)) });
+  } else {
+    var d = new Date(t0 * 86400000);
+    var y = d.getUTCFullYear(), m = d.getUTCMonth() + (d.getUTCDate() > 1 ? 1 : 0), all = [];
+    while (true) {
+      var tt = Math.round(Date.UTC(y, m, 1) / 86400000);
+      if (tt > t1) break;
+      var dd = new Date(tt * 86400000);
+      all.push({ t: tt, label: MONTH_ABBR[dd.getUTCMonth()] + (dd.getUTCMonth() === 0 || !all.length ? " '" + String(dd.getUTCFullYear()).slice(2) : "") });
+      m++;
+    }
+    var stride = Math.max(1, Math.ceil(all.length / maxTicks));
+    for (i = 0; i < all.length; i += stride) ticks.push(all[i]);
+  }
+  return ticks;
 }
 
 function renderTooltip(tooltip, content){
@@ -891,7 +1906,7 @@ function renderTooltip(tooltip, content){
   tooltip.appendChild(title);
   content.rows.forEach(function(r){
     var row = document.createElement("div");
-    row.className = "chart-tooltip-row";
+    row.className = "chart-tooltip-row" + (r.strong ? " strong" : "");
     var label = document.createElement("span");
     label.className = "chart-tooltip-label";
     label.textContent = r.label;
@@ -902,6 +1917,13 @@ function renderTooltip(tooltip, content){
     row.appendChild(value);
     tooltip.appendChild(row);
   });
+}
+
+function placeTooltip(tooltip, wrap, pxX, pxY){
+  var half = Math.max(70, tooltip.offsetWidth / 2 + 6);
+  tooltip.style.left = Math.min(Math.max(pxX, half), Math.max(half, wrap.clientWidth - half)) + "px";
+  tooltip.style.top = Math.max(pxY - 12, 4) + "px";
+  tooltip.classList.add("visible");
 }
 
 function wireChartHover(wrap, xPositions, getContent, getPoint){
@@ -922,36 +1944,23 @@ function wireChartHover(wrap, xPositions, getContent, getPoint){
     }
     return best;
   }
-
-  function toViewBoxX(clientX){
+  function show(clientX){
     var rect = svg.getBoundingClientRect();
     var vb = svg.viewBox.baseVal;
-    return (clientX - rect.left) * (vb.width / rect.width);
-  }
-
-  function show(clientX){
-    var vx = toViewBoxX(clientX);
-    var idx = nearestIdx(vx);
+    var idx = nearestIdx((clientX - rect.left) * (vb.width / rect.width));
     var p = getPoint(idx);
     crosshair.setAttribute("x1", p.x); crosshair.setAttribute("x2", p.x);
     crosshair.style.opacity = 1;
     hoverDot.setAttribute("cx", p.x); hoverDot.setAttribute("cy", p.y);
     hoverDot.style.opacity = 1;
     renderTooltip(tooltip, getContent(idx));
-    var rect = svg.getBoundingClientRect();
-    var vb = svg.viewBox.baseVal;
-    var pxX = p.x * (rect.width / vb.width);
-    var pxY = p.y * (rect.height / vb.height);
-    tooltip.style.left = pxX + "px";
-    tooltip.style.top = Math.max(pxY - 12, 4) + "px";
-    tooltip.classList.add("visible");
+    placeTooltip(tooltip, wrap, p.x * (rect.width / vb.width), p.y * (rect.height / vb.height));
   }
   function hide(){
     crosshair.style.opacity = 0;
     hoverDot.style.opacity = 0;
     tooltip.classList.remove("visible");
   }
-
   hitRect.addEventListener("pointermove", function(e){ show(e.clientX); });
   hitRect.addEventListener("pointerdown", function(e){ show(e.clientX); });
   hitRect.addEventListener("pointerleave", hide);
@@ -968,7 +1977,6 @@ function wireBarHover(wrap, getContent){
     var hovered = svg.querySelectorAll(".chart-bar.hovered");
     for (var i = 0; i < hovered.length; i++) hovered[i].classList.remove("hovered");
   }
-
   function onMove(e){
     var target = e.target.closest ? e.target.closest("[data-idx]") : null;
     clearHover();
@@ -977,261 +1985,619 @@ function wireBarHover(wrap, getContent){
     var bar = svg.querySelector('.chart-bar[data-idx="' + idx + '"]');
     if (bar) bar.classList.add("hovered");
     renderTooltip(tooltip, getContent(idx));
-    var svgRect = svg.getBoundingClientRect();
-    var targetRect = target.getBoundingClientRect();
-    var vb = svg.viewBox.baseVal;
-    var topPx = CHART_MARGIN.top * (svgRect.height / vb.height);
-    tooltip.style.left = (targetRect.left - svgRect.left + targetRect.width / 2) + "px";
-    tooltip.style.top = Math.max(topPx - 8, 4) + "px";
-    tooltip.classList.add("visible");
+    var svgRect = svg.getBoundingClientRect(), tRect = target.getBoundingClientRect();
+    var barTop = bar ? bar.getBoundingClientRect().top - svgRect.top : CM.top;
+    placeTooltip(tooltip, wrap, tRect.left - svgRect.left + tRect.width / 2, barTop);
   }
   function onLeave(){ clearHover(); tooltip.classList.remove("visible"); }
-
   svg.addEventListener("pointermove", onMove);
+  svg.addEventListener("pointerdown", onMove);
   svg.addEventListener("pointerleave", onLeave);
 }
 
-/* ===== Spending: rendering ===== */
-function renderSpendingKPIs(){
-  var total = 0;
-  state.spending.forEach(function(en){ total += en.amount; });
-  var count = state.spending.length;
-  var avg = count ? total / count : 0;
-  document.getElementById("spendTotal").textContent = fmtMoney(total);
-  document.getElementById("spendCount").textContent = count;
-  document.getElementById("spendAvg").textContent = fmtMoney(avg);
+function roundedTopBarPath(x, yTop, w, h, r){
+  if (h <= 0.5) return "";
+  r = Math.min(r, w / 2, h);
+  var yBottom = yTop + h;
+  return "M" + x + "," + yBottom +
+    " L" + x + "," + (yTop + r) +
+    " Q" + x + "," + yTop + " " + (x + r) + "," + yTop +
+    " L" + (x + w - r) + "," + yTop +
+    " Q" + (x + w) + "," + yTop + " " + (x + w) + "," + (yTop + r) +
+    " L" + (x + w) + "," + yBottom +
+    " Z";
 }
 
+function shortLabel(s, n){ s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+/* ===== Spending: summary tiles and notes ===== */
+function renderSpendingKPIs(){
+  var total = totalSpent(), count = state.spending.length;
+  var avg = count ? total / count : 0;
+  var curYm = todayLocalISO().slice(0, 7);
+  var thisM = monthTotal(curYm), lastM = monthTotal(addMonths(curYm, -1));
+  var owned = ownedCount();
+  var perCard = owned ? total / owned : 0;
+  var top = null;
+  spendBySeries().forEach(function(s){ if (!top && s.code) top = s; });
+
+  var delta;
+  if (lastM > 0 && thisM === 0) {
+    delta = "Nothing yet. Last month was " + fmtMoney(lastM) + ".";
+  } else if (lastM > 0) {
+    var pct = Math.round(Math.abs(thisM - lastM) / lastM * 100);
+    delta = pct === 0 ? "Same as last month" : (thisM > lastM ? "Up " : "Down ") + pct + "% from " + fmtMoney(lastM) + " last month";
+  } else {
+    delta = thisM > 0 ? "Nothing spent last month" : "No spending yet this month";
+  }
+  var tiles = [
+    { label: "Total spent", value: fmtMoney(total), sub: count ? count + (count === 1 ? " purchase" : " purchases") + ", " + fmtMoney(avg) + " each" : "No purchases logged yet" },
+    { label: "This month", value: fmtMoney(thisM), sub: delta },
+    { label: "Per card owned", value: owned && total ? fmtMoney(perCard) : "—", sub: owned ? "Across " + fmtInt(owned) + " cards in the binder" : "Check off cards to see this" },
+    { label: "Top series", value: top ? top.code : "—", sub: top ? fmtMoney(top.total) + ", " + Math.round(top.total / total * 100) + "% of spending" : "Log a purchase with a series" }
+  ];
+  var html = "";
+  tiles.forEach(function(t){
+    html += '<div class="kpi"><span class="kpi-label">' + esc(t.label) + '</span><span class="kpi-value">' + esc(t.value) + '</span><span class="kpi-sub">' + esc(t.sub) + '</span></div>';
+  });
+  byId("spendKpis").innerHTML = html;
+}
+
+function renderSpendInsights(){
+  var list = byId("spendInsights");
+  var items = [];
+  var count = state.spending.length;
+  if (count) {
+    var total = totalSpent();
+    var big = state.spending.reduce(function(a, b){ return b.amount > a.amount ? b : a; });
+    items.push("Your biggest purchase was " + fmtMoney(big.amount) + " on " + fmtDateShort(big.date) + (big.series ? " (" + big.series + ")" : "") + ".");
+    var firstYm = state.spending[0].date.slice(0, 7), nowYm = todayLocalISO().slice(0, 7), months = 1;
+    while (firstYm < nowYm && months < 1200) { firstYm = addMonths(firstYm, 1); months++; }
+    if (months >= 2) items.push("You spend about " + fmtMoney(total / months) + " a month on average, over " + months + " months.");
+    var bySeries = spendBySeries().filter(function(s){ return s.code; });
+    if (bySeries.length >= 2) items.push(bySeries[0].code + " has taken the biggest share, " + fmtMoney(bySeries[0].total) + " (" + Math.round(bySeries[0].total / total * 100) + "%).");
+    var lastDate = state.spending.reduce(function(a, b){ return b.date > a ? b.date : a; }, "0000-00-00");
+    var ago = dayNum(todayLocalISO()) - dayNum(lastDate);
+    if (items.length < 3) items.push("Your last purchase was " + (ago <= 0 ? "today" : ago === 1 ? "yesterday" : ago + " days ago") + ".");
+  }
+  list.innerHTML = items.slice(0, 3).map(function(s){ return "<li>" + esc(s) + "</li>"; }).join("");
+  list.hidden = !items.length;
+}
+
+/* ===== Spending: charts ===== */
 function renderCumulativeChart(){
-  var wrap = document.getElementById("cumulativeChartWrap");
-  var points = computeCumulativeSeries();
-  if (points.length < 2) {
-    wrap.innerHTML = '<div class="chart-empty">' +
-      (points.length === 1 ? "Log one more purchase to see a trend line." : "Log a purchase to start tracking your spending over time.") +
-      '</div>';
+  var wrap = byId("cumulativeChartWrap");
+  var all = computeCumulativeSeries();
+  if (!all.length) {
+    wrap.innerHTML = '<div class="chart-empty">Log a purchase to start tracking your spending over time.</div>';
     return;
   }
-  var innerW = CHART_VB_W - CHART_MARGIN.left - CHART_MARGIN.right;
-  var innerH = CHART_VB_H - CHART_MARGIN.top - CHART_MARGIN.bottom;
-  var n = points.length;
-  var maxY = niceMax(points[n - 1].total);
-  var xAt = function(i){ return CHART_MARGIN.left + (n === 1 ? 0 : (innerW * i / (n - 1))); };
-  var yAt = function(v){ return CHART_MARGIN.top + innerH - (innerH * v / maxY); };
+  var startISO = rangeStartISO();
+  var before = 0, pts = [];
+  all.forEach(function(p){
+    if (startISO && p.date < startISO) before = p.total; else pts.push(p);
+  });
+  var firstDay = startISO ? dayNum(startISO) : dayNum(all[0].date);
+  var lastDay = Math.max(dayNum(todayLocalISO()), dayNum(all[all.length - 1].date));
+  var pad = Math.max(1, Math.round((lastDay - firstDay) * 0.025));
+  var t0 = firstDay - pad, t1 = lastDay + pad;
+  var W = chartWidth(wrap), H = 232;
+  var innerW = W - CM.left - CM.right, innerH = H - CM.top - CM.bottom;
+  var finalTotal = all[all.length - 1].total;
+  var maxY = niceMax(finalTotal);
+  var x = function(t){ return CM.left + innerW * (t - t0) / (t1 - t0); };
+  var y = function(v){ return CM.top + innerH - innerH * v / maxY; };
+  var baseline = CM.top + innerH;
 
-  var yTicks = 4, gridLines = "", axisLabelsY = "";
-  for (var t = 0; t <= yTicks; t++) {
-    var v = maxY * t / yTicks;
-    var y = yAt(v);
-    gridLines += '<line x1="' + CHART_MARGIN.left + '" y1="' + y.toFixed(1) + '" x2="' + (CHART_VB_W - CHART_MARGIN.right) + '" y2="' + y.toFixed(1) + '"></line>';
-    axisLabelsY += '<text class="chart-axis-label mono" x="' + (CHART_MARGIN.left - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + esc(fmtMoneyShort(v)) + '</text>';
-  }
+  var d = "M" + x(t0).toFixed(1) + "," + y(before).toFixed(1), prev = before, xs = [], dots = "";
+  pts.forEach(function(p){
+    var px = x(dayNum(p.date));
+    d += " L" + px.toFixed(1) + "," + y(prev).toFixed(1) + " L" + px.toFixed(1) + "," + y(p.total).toFixed(1);
+    prev = p.total;
+    xs.push(px);
+  });
+  d += " L" + x(t1).toFixed(1) + "," + y(prev).toFixed(1);
+  var area = d + " L" + x(t1).toFixed(1) + "," + baseline + " L" + x(t0).toFixed(1) + "," + baseline + " Z";
+  pts.forEach(function(p, i){
+    var last = i === pts.length - 1;
+    dots += '<circle class="chart-dot' + (last ? ' last' : '') + '" cx="' + xs[i].toFixed(1) + '" cy="' + y(p.total).toFixed(1) + '" r="' + (last ? 5 : 3.5) + '" fill="#b8862a"></circle>';
+  });
 
-  var linePath = "", xPositions = [];
-  for (var i = 0; i < n; i++) {
-    var x = xAt(i), yy = yAt(points[i].total);
-    xPositions.push(x);
-    linePath += (i === 0 ? "M" : "L") + x.toFixed(1) + "," + yy.toFixed(1) + " ";
-  }
-  var baseline = CHART_MARGIN.top + innerH;
-  var areaPath = linePath + "L" + xAt(n - 1).toFixed(1) + "," + baseline.toFixed(1) +
-    " L" + xAt(0).toFixed(1) + "," + baseline.toFixed(1) + " Z";
-
-  var xLabelCount = Math.min(5, n);
-  var axisLabelsX = "";
-  for (var li = 0; li < xLabelCount; li++) {
-    var idx = xLabelCount === 1 ? 0 : Math.round(li * (n - 1) / (xLabelCount - 1));
-    var anchor = idx === 0 ? "start" : (idx === n - 1 ? "end" : "middle");
-    var dParts = points[idx].date.split("-");
-    var shortLabel = parseInt(dParts[1], 10) + "/" + parseInt(dParts[2], 10);
-    axisLabelsX += '<text class="chart-axis-label" x="' + xAt(idx).toFixed(1) + '" y="' + (CHART_VB_H - 8) + '" text-anchor="' + anchor + '">' + esc(shortLabel) + '</text>';
-  }
-
-  var lastX = xAt(n - 1), lastY = yAt(points[n - 1].total);
+  var xLabels = "";
+  timeTicks(t0, t1, Math.max(3, Math.floor(innerW / 84))).forEach(function(tk){
+    var tx = x(tk.t);
+    xLabels += '<line class="chart-tick" x1="' + tx.toFixed(1) + '" y1="' + baseline + '" x2="' + tx.toFixed(1) + '" y2="' + (baseline + 4) + '"></line>' +
+      '<text class="chart-axis-label" x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(tk.label) + '</text>';
+  });
 
   var svg =
-    '<svg class="chart-svg" viewBox="0 0 ' + CHART_VB_W + ' ' + CHART_VB_H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Cumulative spending over time">' +
-      '<g class="chart-grid">' + gridLines + '</g>' +
-      '<path class="chart-area" d="' + areaPath + '"></path>' +
-      '<path class="chart-line" d="' + linePath.trim() + '"></path>' +
-      '<circle class="chart-dot" cx="' + lastX.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="4"></circle>' +
-      '<text class="chart-end-label" x="' + Math.max(lastX - 4, CHART_MARGIN.left + 4).toFixed(1) + '" y="' + Math.max(lastY - 10, 12).toFixed(1) + '" text-anchor="end">' + esc(fmtMoney(points[n - 1].total)) + '</text>' +
-      axisLabelsY + axisLabelsX +
-      '<line class="chart-crosshair" x1="0" y1="' + CHART_MARGIN.top + '" x2="0" y2="' + baseline + '"></line>' +
-      '<circle class="chart-hover-dot" cx="0" cy="0" r="5"></circle>' +
-      '<rect class="chart-hit" x="' + CHART_MARGIN.left + '" y="0" width="' + innerW + '" height="' + CHART_VB_H + '"></rect>' +
+    '<svg class="chart-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Running total of spending over time">' +
+      '<defs><linearGradient id="cumFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b24a" stop-opacity=".34"/><stop offset="1" stop-color="#d9b24a" stop-opacity="0"/></linearGradient></defs>' +
+      yGridHtml(W, y, maxY, 4) +
+      '<line class="chart-baseline" x1="' + CM.left + '" y1="' + baseline + '" x2="' + (W - CM.right) + '" y2="' + baseline + '"></line>' +
+      '<path class="chart-area" d="' + area + '" fill="url(#cumFill)" stroke="none"></path>' +
+      '<path class="chart-line" d="' + d + '" fill="none" stroke="#b8862a" stroke-width="2.25"></path>' +
+      dots +
+      '<text class="chart-end-label" x="' + (W - CM.right - 2) + '" y="' + Math.max(y(prev) - 9, 12).toFixed(1) + '" text-anchor="end">' + esc(fmtMoney(prev)) + '</text>' +
+      xLabels +
+      '<line class="chart-crosshair" x1="0" y1="' + CM.top + '" x2="0" y2="' + baseline + '"></line>' +
+      '<circle class="chart-hover-dot" cx="0" cy="0" r="6" fill="#fff" stroke="#b8862a" stroke-width="2.5"></circle>' +
+      '<rect class="chart-hit" x="' + CM.left + '" y="0" width="' + innerW + '" height="' + H + '" fill="transparent"></rect>' +
     '</svg>';
   wrap.innerHTML = svg;
 
-  wireChartHover(wrap, xPositions, function(idx){
-    return { title: fmtDateShort(points[idx].date), rows: [{ label: "Running total", value: fmtMoney(points[idx].total) }] };
-  }, function(idx){ return { x: xAt(idx), y: yAt(points[idx].total) }; });
+  wireChartHover(wrap, xs, function(idx){
+    var p = pts[idx];
+    var rows = p.items.slice(0, 3).map(function(en){
+      return { label: (en.series ? en.series + " " : "") + shortLabel(en.note || KIND_BY_ID[en.kind].name, 20), value: fmtMoney(en.amount) };
+    });
+    if (p.items.length > 3) rows.push({ label: "and " + (p.items.length - 3) + " more", value: "" });
+    rows.push({ label: "Total so far", value: fmtMoney(p.total), strong: true });
+    return { title: fmtDateShort(p.date), rows: rows };
+  }, function(idx){ return { x: xs[idx], y: y(pts[idx].total) }; });
 }
 
 function renderMonthlyChart(){
-  var wrap = document.getElementById("monthlyChartWrap");
+  var wrap = byId("monthlyChartWrap");
   var series = computeMonthlySeries();
   if (!series.length) {
-    wrap.innerHTML = '<div class="chart-empty">Log a purchase to see your monthly totals.</div>';
+    wrap.innerHTML = '<div class="chart-empty">' + (state.spending.length ? 'No purchases in this range.' : 'Log a purchase to see your monthly totals.') + '</div>';
     return;
   }
-  var innerW = CHART_VB_W - CHART_MARGIN.left - CHART_MARGIN.right;
-  var innerH = CHART_VB_H - CHART_MARGIN.top - CHART_MARGIN.bottom;
-  var n = series.length;
-  var maxVal = 0;
+  var W = chartWidth(wrap), H = 232;
+  var innerW = W - CM.left - CM.right, innerH = H - CM.top - CM.bottom;
+  var n = series.length, maxVal = state.budget || 0;
   series.forEach(function(s){ if (s.total > maxVal) maxVal = s.total; });
   var maxY = niceMax(maxVal || 1);
-  var slot = innerW / n;
-  var barW = Math.min(24, slot * 0.56);
-  var baseline = CHART_MARGIN.top + innerH;
-  var yAt = function(v){ return CHART_MARGIN.top + innerH - (innerH * v / maxY); };
-  var xCenterAt = function(i){ return CHART_MARGIN.left + slot * (i + 0.5); };
-
-  var yTicks = 4, gridLines = "", axisLabelsY = "";
-  for (var t = 0; t <= yTicks; t++) {
-    var v = maxY * t / yTicks;
-    var y = yAt(v);
-    gridLines += '<line x1="' + CHART_MARGIN.left + '" y1="' + y.toFixed(1) + '" x2="' + (CHART_VB_W - CHART_MARGIN.right) + '" y2="' + y.toFixed(1) + '"></line>';
-    axisLabelsY += '<text class="chart-axis-label mono" x="' + (CHART_MARGIN.left - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + esc(fmtMoneyShort(v)) + '</text>';
-  }
-
-  var maxXLabels = 6;
-  var labelEvery = Math.max(1, Math.ceil(n / maxXLabels));
-  var bars = "", hits = "", axisLabelsX = "";
+  var slot = innerW / n, barW = Math.min(40, Math.max(3, slot * 0.62));
+  var baseline = CM.top + innerH;
+  var y = function(v){ return CM.top + innerH - innerH * v / maxY; };
+  var labelEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(innerW / 64))));
+  var curYm = todayLocalISO().slice(0, 7);
+  var bars = "", hits = "", xLabels = "";
   for (var i = 0; i < n; i++) {
-    var cx = xCenterAt(i);
-    var val = series[i].total;
-    var barTop = yAt(val);
-    var h = Math.max(0, baseline - barTop);
-    var x = cx - barW / 2;
-    bars += '<path class="chart-bar" data-idx="' + i + '" d="' + roundedTopBarPath(x, barTop, barW, h, 4) + '"></path>';
-    hits += '<rect class="chart-bar-hit" data-idx="' + i + '" x="' + (cx - slot / 2).toFixed(1) + '" y="' + CHART_MARGIN.top + '" width="' + slot.toFixed(1) + '" height="' + innerH + '"></rect>';
+    var cx = CM.left + slot * (i + 0.5), val = series[i].total, top = y(val);
+    var h = Math.max(0, baseline - top);
+    bars += '<path class="chart-bar' + (series[i].ym === curYm ? ' current' : '') + '" data-idx="' + i + '" d="' + roundedTopBarPath(cx - barW / 2, top, barW, h, Math.min(5, barW / 2)) + '" fill="url(#barFill)"></path>';
+    hits += '<rect class="chart-bar-hit" data-idx="' + i + '" x="' + (cx - slot / 2).toFixed(1) + '" y="' + CM.top + '" width="' + slot.toFixed(1) + '" height="' + innerH + '" fill="transparent"></rect>';
     if (i % labelEvery === 0 || i === n - 1) {
-      axisLabelsX += '<text class="chart-axis-label" x="' + cx.toFixed(1) + '" y="' + (CHART_VB_H - 8) + '" text-anchor="middle">' + esc(fmtMonthLabel(series[i].ym)) + '</text>';
+      xLabels += '<text class="chart-axis-label" x="' + cx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(fmtMonthLabel(series[i].ym)) + '</text>';
     }
   }
-
-  var svg =
-    '<svg class="chart-svg" viewBox="0 0 ' + CHART_VB_W + ' ' + CHART_VB_H + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Spending by month">' +
-      '<g class="chart-grid">' + gridLines + '</g>' +
-      '<line class="chart-baseline" x1="' + CHART_MARGIN.left + '" y1="' + baseline + '" x2="' + (CHART_VB_W - CHART_MARGIN.right) + '" y2="' + baseline + '"></line>' +
-      bars + axisLabelsY + axisLabelsX + hits +
+  var budgetLine = state.budget
+    ? '<line class="chart-budget" x1="' + CM.left + '" y1="' + y(state.budget).toFixed(1) + '" x2="' + (W - CM.right) + '" y2="' + y(state.budget).toFixed(1) + '"></line>' +
+      '<text class="chart-budget-label" x="' + (W - CM.right - 2) + '" y="' + (y(state.budget) - 5).toFixed(1) + '" text-anchor="end">Budget ' + esc(fmtMoneyShort(state.budget)) + '</text>'
+    : '';
+  wrap.innerHTML =
+    '<svg class="chart-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Spending by month">' +
+      '<defs><linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e6c65f"/><stop offset="1" stop-color="#b8862a"/></linearGradient></defs>' +
+      yGridHtml(W, y, maxY, 4) +
+      '<line class="chart-baseline" x1="' + CM.left + '" y1="' + baseline + '" x2="' + (W - CM.right) + '" y2="' + baseline + '"></line>' +
+      bars + budgetLine + xLabels + hits +
     '</svg>';
-  wrap.innerHTML = svg;
 
   wireBarHover(wrap, function(idx){
-    return { title: fmtMonthLabelFull(series[idx].ym), rows: [{ label: "Spent", value: fmtMoney(series[idx].total) }] };
+    var s = series[idx];
+    var rows = Object.keys(s.series).map(function(code){ return { code: code, v: s.series[code] }; })
+      .sort(function(a, b){ return b.v - a.v; }).slice(0, 3)
+      .map(function(r){ return { label: r.code || "No series", value: fmtMoney(r.v) }; });
+    rows.push({ label: "Total", value: fmtMoney(s.total), strong: true });
+    return { title: fmtMonthLabelFull(s.ym), rows: rows };
   });
 }
 
-function renderSpendList(){
-  var container = document.getElementById("spendList");
-  if (!state.spending.length) {
-    container.innerHTML = '<div class="empty-note">No purchases logged yet — add one above.</div>';
+function renderKindDonut(){
+  var wrap = byId("kindDonutWrap");
+  var kinds = spendByKind();
+  var total = totalSpent();
+  if (!total) {
+    wrap.innerHTML = '<div class="chart-empty">Choose a type when you log a purchase to see the split.</div>';
     return;
   }
-  var sorted = state.spending.slice().sort(function(a, b){
-    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-    return 0;
+  var R = 56, C = 2 * Math.PI * R, acc = 0, segs = "", legend = "";
+  kinds.forEach(function(k){
+    var frac = k.total / total, len = Math.max(0, frac * C - (kinds.length > 1 ? 2.5 : 0));
+    segs += '<circle class="donut-seg" data-kind="' + k.kind.id + '" cx="80" cy="80" r="' + R + '" fill="none" stroke="' + k.kind.color + '" stroke-width="22" stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) + '" stroke-dashoffset="' + (-acc * C).toFixed(2) + '" transform="rotate(-90 80 80)"></circle>';
+    acc += frac;
+    legend += '<li class="donut-row" data-kind="' + k.kind.id + '"><i class="swatch" style="background:' + k.kind.color + '"></i><span class="donut-name">' + esc(k.kind.name) + '</span><span class="donut-amt mono">' + fmtMoney(k.total) + '</span><span class="donut-pct mono">' + Math.round(frac * 100) + '%</span></li>';
   });
-  container.innerHTML = "";
-  sorted.forEach(function(en){
-    var row = document.createElement("div");
-    row.className = "spend-row";
-    var date = document.createElement("div");
-    date.className = "spend-row-date mono";
-    date.textContent = fmtDateShort(en.date);
-    var note = document.createElement("div");
-    note.className = "spend-row-note";
-    note.textContent = en.note || "Purchase";
-    var amount = document.createElement("div");
-    amount.className = "spend-row-amount mono";
-    amount.textContent = fmtMoney(en.amount);
-    var del = document.createElement("button");
-    del.type = "button";
-    del.className = "spend-row-del";
-    del.setAttribute("aria-label", "Delete this purchase");
-    del.setAttribute("data-id", en.id);
-    del.disabled = readOnly;
-    del.textContent = "✕";
-    row.appendChild(date);
-    row.appendChild(note);
-    row.appendChild(amount);
-    row.appendChild(del);
-    container.appendChild(row);
+  wrap.innerHTML =
+    '<div class="donut">' +
+      '<div class="donut-fig">' +
+        '<svg viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="Spending split by type"><circle cx="80" cy="80" r="' + R + '" fill="none" stroke="#f1e6c6" stroke-width="22"></circle>' + segs + '</svg>' +
+        '<div class="donut-center"><span class="donut-total" id="donutTotal">' + esc(fmtWholeMoney(total)) + '</span><span class="donut-cap" id="donutCap">total</span></div>' +
+      '</div>' +
+      '<ul class="donut-legend">' + legend + '</ul>' +
+    '</div>';
+  var totalEl = byId("donutTotal"), capEl = byId("donutCap");
+  function focusKind(id){
+    var k = id ? KIND_BY_ID[id] : null, amt = 0;
+    kinds.forEach(function(x){ if (k && x.kind.id === id) amt = x.total; });
+    totalEl.textContent = fmtWholeMoney(k ? amt : total);
+    capEl.textContent = k ? k.name.toLowerCase() : "total";
+    wrap.querySelectorAll("[data-kind]").forEach(function(el){
+      el.classList.toggle("dim", !!k && el.getAttribute("data-kind") !== id);
+    });
+  }
+  wrap.onpointerover = function(e){
+    var t = e.target.closest ? e.target.closest("[data-kind]") : null;
+    focusKind(t ? t.getAttribute("data-kind") : null);
+  };
+  wrap.onpointerleave = function(){ focusKind(null); };
+}
+
+function renderSeriesBars(){
+  var wrap = byId("seriesBars");
+  var rows = spendBySeries();
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="empty-note">Choose a series when you log a purchase and each set’s cost will be listed here.</p>';
+    return;
+  }
+  var max = rows[0].total || 1;
+  var html = "";
+  rows.forEach(function(r){
+    var st = r.code ? setStats(r.code) : null;
+    var sub = r.count + (r.count === 1 ? " purchase" : " purchases");
+    if (st && st.total) {
+      sub += ", " + st.owned + " of " + st.total + " cards (" + Math.round(st.owned / st.total * 100) + "%)";
+      sub += st.owned ? ", " + fmtMoney(r.total / st.owned) + " per card" : "";
+    }
+    html +=
+      '<div class="sb-row">' +
+        '<div class="sb-head">' + (r.code ? '<span class="chip mono">' + esc(r.code) + '</span>' : '') + '<span class="sb-name">' + esc(seriesName(r.code)) + '</span><span class="sb-amt mono">' + fmtMoney(r.total) + '</span></div>' +
+        '<div class="ov-bar tall"><i style="width:' + (r.total / max * 100).toFixed(1) + '%"></i></div>' +
+        '<div class="sb-sub">' + esc(sub) + '</div>' +
+      '</div>';
   });
+  wrap.innerHTML = html;
+}
+
+/* ===== Spending: budget ===== */
+function renderBudget(){
+  var body = byId("budgetBody");
+  var curYm = todayLocalISO().slice(0, 7);
+  var spent = monthTotal(curYm), b = state.budget || 0;
+  var dis = readOnly ? " disabled" : "";
+  var html = "";
+  if (b > 0) {
+    var ratio = spent / b, cls = ratio > 1 ? "over" : ratio >= 0.8 ? "warn" : "ok";
+    var left = b - spent;
+    html +=
+      '<div class="budget-state ' + cls + '">' +
+        '<div class="budget-line"><strong class="mono">' + fmtMoney(spent) + '</strong> of <span class="mono">' + fmtMoney(b) + '</span> spent in ' + esc(fmtMonthLabelFull(curYm)) + '</div>' +
+        '<div class="budget-track" role="progressbar" aria-valuemin="0" aria-valuemax="' + b + '" aria-valuenow="' + Math.min(spent, b).toFixed(2) + '" aria-label="Monthly budget used"><i style="width:' + Math.min(100, ratio * 100).toFixed(1) + '%"></i></div>' +
+        '<div class="budget-note">' + (left >= 0 ? fmtMoney(left) + ' left this month.' : fmtMoney(-left) + ' over budget this month.') + '</div>' +
+      '</div>';
+  }
+  html +=
+    '<div class="budget-form">' +
+      '<div class="field"><label for="budgetInput">Monthly budget ($)</label><input type="number" id="budgetInput" min="0" step="1" inputmode="decimal" placeholder="e.g. 50" value="' + (b > 0 ? b : '') + '"' + dis + '></div>' +
+      '<button type="button" class="iconbtn" id="budgetSave"' + dis + '>' + (b > 0 ? 'Update' : 'Set budget') + '</button>' +
+      (b > 0 ? '<button type="button" class="iconbtn" id="budgetClear"' + dis + '>Remove</button>' : '') +
+    '</div>';
+  body.innerHTML = html;
+}
+
+function setBudget(v){
+  v = Number(v);
+  state.budget = (v > 0 && isFinite(v)) ? Math.round(v * 100) / 100 : 0;
+  renderBudget();
+  renderMonthlyChart();
+  scheduleSave();
+  showToast(state.budget ? "Monthly budget set to " + fmtMoney(state.budget) : "Budget removed");
+}
+
+/* ===== Spending: form and history ===== */
+function populateSpendSelects(){
+  var sel = byId("spendSeries");
+  var html = '<option value="" disabled selected>Choose a series</option><option value="none">No specific series</option>';
+  var groups = [["Booster", "Booster packs", true], ["Starter", "Starter decks", false], ["Promo", "Promo & events", false]];
+  groups.forEach(function(g){
+    var sets = SET_META.filter(function(s){ return s[2] === g[0]; });
+    if (g[2]) sets = sets.slice().reverse();
+    if (!sets.length) return;
+    html += '<optgroup label="' + g[1] + '">';
+    sets.forEach(function(s){ html += '<option value="' + esc(s[0]) + '">' + esc(s[0]) + ' · ' + esc(s[1]) + '</option>'; });
+    html += '</optgroup>';
+  });
+  sel.innerHTML = html;
+  sel.required = true;
+  var kind = byId("spendKind");
+  kind.innerHTML = SPEND_KINDS.map(function(k){ return '<option value="' + k.id + '">' + esc(k.name) + '</option>'; }).join("");
+}
+
+function filteredSpending(){
+  var list = state.spending.filter(function(en){
+    if (ui.histSeries === "__none") { if (en.series) return false; }
+    else if (ui.histSeries && en.series !== ui.histSeries) return false;
+    if (ui.histKind && en.kind !== ui.histKind) return false;
+    return true;
+  });
+  list.sort(function(a, b){
+    if (ui.histSort === "high") return (b.amount - a.amount) || (a.date < b.date ? 1 : -1);
+    var cmp = a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    return ui.histSort === "old" ? cmp : -cmp;
+  });
+  return list;
+}
+
+function refreshHistoryFilters(){
+  var sSel = byId("histSeries"), kSel = byId("histKind");
+  var seriesSeen = {}, noSeries = false, kindsSeen = {};
+  state.spending.forEach(function(en){ if (en.series) seriesSeen[en.series] = true; else noSeries = true; kindsSeen[en.kind] = true; });
+  var sHtml = '<option value="">All series</option>';
+  SET_META.forEach(function(s){ if (seriesSeen[s[0]]) sHtml += '<option value="' + esc(s[0]) + '">' + esc(s[0]) + '</option>'; });
+  if (noSeries) sHtml += '<option value="__none">No series</option>';
+  sSel.innerHTML = sHtml;
+  var kHtml = '<option value="">All types</option>';
+  SPEND_KINDS.forEach(function(k){ if (kindsSeen[k.id]) kHtml += '<option value="' + k.id + '">' + esc(k.name) + '</option>'; });
+  kSel.innerHTML = kHtml;
+  if (!sSel.querySelector('option[value="' + cssEsc(ui.histSeries) + '"]')) ui.histSeries = "";
+  if (!kSel.querySelector('option[value="' + cssEsc(ui.histKind) + '"]')) ui.histKind = "";
+  sSel.value = ui.histSeries;
+  kSel.value = ui.histKind;
+  byId("histSort").value = ui.histSort;
+}
+
+function spendRowHtml(en, showYear){
+  var kind = KIND_BY_ID[en.kind] || KIND_BY_ID.other;
+  var title = en.note || (en.series ? seriesName(en.series) : kind.name);
+  var dis = readOnly ? " disabled" : "";
+  return '<div class="spend-row' + (ui.editSpendId === en.id ? ' editing' : '') + '" data-id="' + esc(en.id) + '">' +
+    '<div class="sr-date mono">' + esc(showYear ? fmtDateShort(en.date) : fmtDayMonth(en.date)) + '</div>' +
+    '<div class="sr-main"><div class="sr-title">' + esc(title) + '</div>' +
+      '<div class="sr-meta">' + (en.series ? '<span class="chip mono">' + esc(en.series) + '</span>' : '') + '<span class="chip kind"><i class="swatch" style="background:' + kind.color + '"></i>' + esc(kind.name) + '</span></div></div>' +
+    '<div class="sr-amt mono">' + fmtMoney(en.amount) + '</div>' +
+    '<div class="sr-actions">' +
+      '<button type="button" class="spend-row-edit" data-id="' + esc(en.id) + '" aria-label="Edit this purchase" title="Edit"' + dis + '>' + EDIT_SVG + '</button>' +
+      '<button type="button" class="spend-row-del" data-id="' + esc(en.id) + '" aria-label="Delete this purchase" title="Delete"' + dis + '>' + TRASH_SVG + '</button>' +
+    '</div></div>';
+}
+
+function renderSpendList(){
+  var container = byId("spendList");
+  refreshHistoryFilters();
+  var all = state.spending.length;
+  var list = filteredSpending();
+  var sum = 0;
+  list.forEach(function(en){ sum += en.amount; });
+  byId("histCount").textContent = all
+    ? (list.length === all ? all + (all === 1 ? " purchase, " : " purchases, ") : list.length + " of " + all + " purchases, ") + fmtMoney(sum)
+    : "Nothing logged yet";
+  if (!all) {
+    container.innerHTML = '<div class="empty-note">No purchases logged yet. Add one above and it will appear here.</div>';
+    return;
+  }
+  if (!list.length) {
+    container.innerHTML = '<div class="empty-note">No purchases match those filters.</div>';
+    return;
+  }
+  var html = "";
+  if (ui.histSort === "high") {
+    list.forEach(function(en){ html += spendRowHtml(en, true); });
+  } else {
+    var ym = "", subtotal = {}, counts = {};
+    list.forEach(function(en){ var k = en.date.slice(0, 7); subtotal[k] = (subtotal[k] || 0) + en.amount; counts[k] = (counts[k] || 0) + 1; });
+    list.forEach(function(en){
+      var k = en.date.slice(0, 7);
+      if (k !== ym) {
+        if (ym) html += '</div>';
+        ym = k;
+        html += '<div class="spend-month"><div class="spend-month-head"><span>' + esc(fmtMonthLabelFull(k)) + '</span><span class="mono">' + fmtMoney(subtotal[k]) + ' · ' + counts[k] + (counts[k] === 1 ? ' purchase' : ' purchases') + '</span></div>';
+      }
+      html += spendRowHtml(en, false);
+    });
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function updateRangeSeg(){
+  document.querySelectorAll("#rangeSeg button").forEach(function(b){
+    b.setAttribute("aria-pressed", b.getAttribute("data-range") === ui.range ? "true" : "false");
+  });
+}
+
+function renderSpendCharts(){
+  renderCumulativeChart();
+  renderMonthlyChart();
 }
 
 function renderSpendingView(){
   renderSpendingKPIs();
-  renderCumulativeChart();
-  renderMonthlyChart();
+  renderSpendInsights();
+  updateRangeSeg();
+  renderSpendCharts();
+  renderKindDonut();
+  renderSeriesBars();
+  renderBudget();
   renderSpendList();
 }
 
-function addSpendEntry(date, amount, note){
-  var entry = normalizeSpendEntry({ date: date, amount: amount, note: note });
-  if (!entry) return false;
+function addSpendEntry(fields){
+  var entry = normalizeSpendEntry(fields);
+  if (!entry) return null;
   state.spending.push(entry);
+  state.spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   renderSpendingView();
   scheduleSave();
-  return true;
+  return entry;
+}
+
+function updateSpendEntry(id, fields){
+  for (var i = 0; i < state.spending.length; i++) {
+    if (state.spending[i].id !== id) continue;
+    var merged = normalizeSpendEntry({ id: id, date: fields.date, amount: fields.amount, note: fields.note, series: fields.series, kind: fields.kind });
+    if (!merged) return false;
+    state.spending[i] = merged;
+    state.spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    renderSpendingView();
+    scheduleSave();
+    return true;
+  }
+  return false;
 }
 
 function deleteSpendEntry(id){
   var idx = -1;
   for (var i = 0; i < state.spending.length; i++) { if (state.spending[i].id === id) { idx = i; break; } }
   if (idx === -1) return;
-  state.spending.splice(idx, 1);
+  var removed = state.spending.splice(idx, 1)[0];
+  if (ui.editSpendId === id) endEditSpend();
   renderSpendingView();
   scheduleSave();
+  showToast("Deleted " + fmtMoney(removed.amount) + " purchase", {
+    actionLabel: "Undo",
+    onAction: function(){
+      state.spending.push(removed);
+      state.spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      renderSpendingView();
+      scheduleSave();
+    }
+  });
+}
+
+function startEditSpend(id){
+  var en = null;
+  state.spending.forEach(function(x){ if (x.id === id) en = x; });
+  if (!en) return;
+  ui.editSpendId = id;
+  byId("spendDate").value = en.date;
+  byId("spendAmount").value = en.amount;
+  byId("spendSeries").value = en.series || "none";
+  byId("spendKind").value = en.kind;
+  byId("spendNote").value = en.note;
+  byId("spendSubmit").textContent = "Save changes";
+  byId("spendCancel").hidden = false;
+  byId("logTitle").textContent = "Edit purchase";
+  byId("logPanel").classList.add("editing");
+  renderSpendList();
+  byId("logPanel").scrollIntoView({ behavior: "smooth", block: "center" });
+  byId("spendAmount").focus();
+}
+
+function endEditSpend(){
+  ui.editSpendId = null;
+  byId("spendAmount").value = "";
+  byId("spendNote").value = "";
+  byId("spendSubmit").textContent = "Add purchase";
+  byId("spendCancel").hidden = true;
+  byId("logTitle").textContent = "Log a purchase";
+  byId("logPanel").classList.remove("editing");
+}
+
+function csvCell(v){
+  v = String(v == null ? "" : v);
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function spendingCsv(){
+  var rows = ["date,amount,series,series_name,type,note"];
+  state.spending.slice().sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).forEach(function(en){
+    rows.push([en.date, en.amount.toFixed(2), en.series, en.series ? seriesName(en.series) : "", (KIND_BY_ID[en.kind] || KIND_BY_ID.other).name, en.note].map(csvCell).join(","));
+  });
+  return rows.join("\n");
 }
 
 function wireSpendingControls(){
-  var form = document.getElementById("spendForm");
-  var dateInput = document.getElementById("spendDate");
+  populateSpendSelects();
+  var form = byId("spendForm");
+  var dateInput = byId("spendDate");
   var today = todayLocalISO();
   dateInput.value = today;
   dateInput.max = today;
   form.addEventListener("submit", function(e){
     e.preventDefault();
+    if (readOnly) return;
     var date = dateInput.value || todayLocalISO();
-    var amount = parseFloat(document.getElementById("spendAmount").value);
-    var note = document.getElementById("spendNote").value.trim();
+    var amount = parseFloat(byId("spendAmount").value);
+    var seriesVal = byId("spendSeries").value;
+    if (!seriesVal) { byId("spendSeries").focus(); return; }
+    var fields = {
+      date: date, amount: amount,
+      series: seriesVal === "none" ? "" : seriesVal,
+      kind: byId("spendKind").value,
+      note: byId("spendNote").value.trim()
+    };
     if (!isFinite(amount) || amount < 0) return;
-    if (addSpendEntry(date, amount, note)) {
-      form.reset();
-      dateInput.value = todayLocalISO();
-      document.getElementById("spendAmount").focus();
+    if (ui.editSpendId) {
+      var id = ui.editSpendId;
+      if (updateSpendEntry(id, fields)) { endEditSpend(); renderSpendList(); showToast("Purchase updated"); }
+      return;
+    }
+    var entry = addSpendEntry(fields);
+    if (entry) {
+      byId("spendAmount").value = "";
+      byId("spendNote").value = "";
+      byId("spendAmount").focus();
+      showToast("Logged " + fmtMoney(entry.amount) + (entry.series ? " for " + entry.series : ""), {
+        actionLabel: "Undo",
+        onAction: function(){
+          for (var i = 0; i < state.spending.length; i++) { if (state.spending[i].id === entry.id) { state.spending.splice(i, 1); break; } }
+          renderSpendingView();
+          scheduleSave();
+        }
+      });
     }
   });
+  byId("spendCancel").addEventListener("click", function(){ endEditSpend(); renderSpendList(); });
 
-  document.getElementById("spendList").addEventListener("click", function(e){
-    var btn = e.target.closest ? e.target.closest(".spend-row-del") : null;
-    if (!btn) return;
-    deleteSpendEntry(btn.getAttribute("data-id"));
+  byId("spendList").addEventListener("click", function(e){
+    var del = e.target.closest ? e.target.closest(".spend-row-del") : null;
+    if (del) { deleteSpendEntry(del.getAttribute("data-id")); return; }
+    var edit = e.target.closest ? e.target.closest(".spend-row-edit") : null;
+    if (edit) startEditSpend(edit.getAttribute("data-id"));
+  });
+
+  byId("histSeries").addEventListener("change", function(){ ui.histSeries = this.value; renderSpendList(); });
+  byId("histKind").addEventListener("change", function(){ ui.histKind = this.value; renderSpendList(); });
+  byId("histSort").addEventListener("change", function(){ ui.histSort = this.value; renderSpendList(); });
+  byId("csvBtn").addEventListener("click", function(){
+    openTextModal({ title: "Spending as CSV", sub: "Copy this into a spreadsheet such as Google Sheets or Excel. Each purchase is one row.", text: spendingCsv(), primaryLabel: "Copy CSV" });
+  });
+
+  document.querySelectorAll("#rangeSeg button").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      ui.range = btn.getAttribute("data-range");
+      savePrefs();
+      updateRangeSeg();
+      renderSpendCharts();
+    });
+  });
+
+  byId("budgetBody").addEventListener("click", function(e){
+    if (readOnly) return;
+    if (e.target.id === "budgetSave") setBudget(byId("budgetInput").value);
+    else if (e.target.id === "budgetClear") setBudget(0);
+  });
+  byId("budgetBody").addEventListener("keydown", function(e){
+    if (e.key === "Enter" && e.target.id === "budgetInput") { e.preventDefault(); if (!readOnly) setBudget(e.target.value); }
   });
 }
 
+
+
 /* ===== Page routing =====
-   Collection / Wishlist / Spending are real, addressable pages: the URL
-   hash reflects whichever is current, and browser back/forward moves
-   between them, so the site behaves like an app with pages rather than a
-   set of toggles that forget where you were. Wishlist reuses the same
-   collection markup and rendering as a forced "wishlist" ownership view --
-   nothing about card state or the save/sync path changes, only which page
-   chrome and animation wrap it. */
-var TAB_HASH = { collection: "#/collection", wishlist: "#/wishlist", spending: "#/spending" };
-var HASH_TAB = { "#/collection": "collection", "#/wishlist": "wishlist", "#/spending": "spending" };
+   Overview / Collection / Wishlist / Spending are real, addressable pages: the
+   URL hash reflects whichever is current (a bare token, so a shared link like
+   ...#spending opens straight to it), and browser back/forward moves between
+   them. Wishlist reuses the collection markup as a forced "wishlist"
+   ownership view; nothing about card state or the save/sync path changes. */
+var TABS = ["overview", "collection", "wishlist", "spending"];
 
 function tabFromHash(){
-  return HASH_TAB[location.hash] || null;
+  var h = location.hash.replace(/^#\/?/, "");
+  return TABS.indexOf(h) !== -1 ? h : null;
 }
 
 function updateHashForTab(tab, replace){
-  var hash = TAB_HASH[tab] || TAB_HASH.collection;
+  var hash = "#" + tab;
   if (location.hash === hash) return;
-  if (replace && history.replaceState) history.replaceState(null, "", hash);
-  else location.hash = hash;
+  /* Some embedded frames refuse to touch the URL; the page works the same
+     without it, so a refusal is ignored. */
+  try {
+    if (replace && history.replaceState) history.replaceState(null, "", hash);
+    else location.hash = hash;
+  } catch(e){}
 }
 
 function playPageTransition(el){
@@ -1244,18 +2610,21 @@ function playPageTransition(el){
 function setTab(tab, opts){
   opts = opts || {};
   var prevTab = ui.tab;
-  var next = (tab === "spending") ? "spending" : (tab === "wishlist") ? "wishlist" : "collection";
+  var next = TABS.indexOf(tab) !== -1 ? tab : "overview";
   ui.tab = next;
-  var isSpending = next === "spending";
   var isWishlist = next === "wishlist";
+  var inCollection = next === "collection" || isWishlist;
 
-  var collectionControls = document.querySelector(".controls");
-  if (collectionControls) collectionControls.style.display = isSpending ? "none" : "";
-  document.getElementById("collectionView").hidden = isSpending;
-  document.getElementById("spendingView").hidden = !isSpending;
+  byId("overviewView").hidden = next !== "overview";
+  byId("collectionView").hidden = !inCollection;
+  byId("spendingView").hidden = next !== "spending";
 
+  /* In the wishlist page the set accordions give way to one flat list, and
+     the controls that only make sense for sets are tucked away. */
+  byId("sets").hidden = isWishlist;
   var ownershipSeg = document.querySelector(".ownership-seg");
   if (ownershipSeg) ownershipSeg.hidden = isWishlist;
+  document.querySelectorAll(".toolbar-sets-only").forEach(function(el){ el.hidden = isWishlist; });
 
   if (isWishlist) {
     if (filters.view !== "wishlist") setOwnershipView("wishlist");
@@ -1264,13 +2633,19 @@ function setTab(tab, opts){
   }
 
   document.querySelectorAll("#viewTabs button").forEach(function(btn){
-    btn.setAttribute("aria-pressed", btn.getAttribute("data-tab") === next ? "true" : "false");
+    btn.setAttribute("aria-selected", btn.getAttribute("data-tab") === next ? "true" : "false");
   });
 
   if (!opts.skipPush) updateHashForTab(next, opts.replace);
-  if (isSpending) renderSpendingView();
-  if (!opts.skipAnim && prevTab !== next) {
-    playPageTransition(document.getElementById(isSpending ? "spendingView" : "collectionView"));
+  if (next === "overview") renderOverview();
+  if (next === "spending") renderSpendingView();
+  if (isWishlist) renderWishlistSummary();
+  updateToolbarNote();
+  if (prevTab !== next) {
+    if (!opts.skipAnim) {
+      playPageTransition(byId(next === "overview" ? "overviewView" : next === "spending" ? "spendingView" : "collectionView"));
+    }
+    if (!opts.keepScroll) window.scrollTo(0, 0);
   }
 }
 
@@ -1284,84 +2659,151 @@ function wireViewTabs(){
   });
 }
 
-function wireControls(){
-  document.getElementById("sets").addEventListener("click", function(e){
-    if (onWishClick(e)) return;
-    onGridClick(e);
-    onSetsClick(e);
-  });
-  document.getElementById("sets").addEventListener("keydown", onSetsKeydown);
+/* ===== Filters, layout and sorting ===== */
+function resetBinderPages(){ ui.binderPage = {}; }
 
-  document.getElementById("wishlistSummaryGrid").addEventListener("click", function(e){
-    if (onWishClick(e)) return;
-    onGridClick(e);
+function clearFilters(){
+  filters.q = ""; filters.color = ""; filters.rarity = ""; filters.type = "";
+  filters.view = ui.tab === "wishlist" ? "wishlist" : "all";
+  byId("search").value = "";
+  byId("filterColor").value = "";
+  byId("filterRarity").value = "";
+  byId("filterType").value = "";
+  document.querySelectorAll(".ownership-seg button").forEach(function(b){
+    b.setAttribute("aria-pressed", b.getAttribute("data-view") === filters.view ? "true" : "false");
   });
+  resetBinderPages();
+  applySearchVisibility();
+}
 
-  var searchInput = document.getElementById("search");
-  searchInput.value = filters.q;
-  searchInput.addEventListener("input", debounce(function(){
-    filters.q = searchInput.value.trim().toLowerCase();
-    applySearchVisibility();
+function setLayout(layout){
+  ui.layout = layout === "grid" ? "grid" : "binder";
+  savePrefs();
+  document.querySelectorAll("#layoutSeg button").forEach(function(b){
+    b.setAttribute("aria-pressed", b.getAttribute("data-layout") === ui.layout ? "true" : "false");
+  });
+  var sortSel = byId("filterSort");
+  sortSel.disabled = ui.layout === "binder";
+  sortSel.title = ui.layout === "binder" ? "Binder pages always follow card number order. Switch to Grid to sort." : "";
+  refreshOpenGrids();
+}
+
+/* ===== Backup, restore and copy-out ===== */
+var textModal = { onPrimary: null, copyMode: true, primaryLabel: "Copy to clipboard" };
+
+function openTextModal(o){
+  textModal.onPrimary = o.onPrimary || null;
+  textModal.copyMode = !o.onPrimary;
+  textModal.primaryLabel = o.primaryLabel || "Copy to clipboard";
+  byId("backupModalTitle").textContent = o.title;
+  byId("backupModalSub").innerHTML = o.sub;
+  var ta = byId("backupText");
+  ta.readOnly = !o.editable;
+  ta.value = o.text || "";
+  ta.placeholder = o.placeholder || "";
+  byId("backupCopyBtn").textContent = textModal.primaryLabel;
+  byId("backupDoneBtn").textContent = o.editable ? "Cancel" : "Done";
+  byId("backupOverlay").hidden = false;
+  document.body.classList.add("modal-open");
+  ta.focus();
+  if (!o.editable) ta.select();
+}
+
+function closeTextModal(){
+  byId("backupOverlay").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+/* Merges a backup (from a file or pasted text) into the collection. It only
+   ever adds: nothing already in the binder is removed by a restore. */
+function importState(data){
+  if (!data || typeof data !== "object") return false;
+  var added = 0;
+  if (Array.isArray(data.owned)) {
+    data.owned.forEach(function(id){ if (typeof id === "string" && CARD_BY_ID[id] && !state.owned.has(id)) { state.owned.add(id); added++; } });
+  }
+  if (Array.isArray(data.spending)) {
+    var existingIds = {};
+    state.spending.forEach(function(en){ existingIds[en.id] = true; });
+    data.spending.forEach(function(raw){
+      var n = normalizeSpendEntry(raw);
+      if (n && !existingIds[n.id]) { state.spending.push(n); existingIds[n.id] = true; added++; }
+    });
+    state.spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  }
+  if (Array.isArray(data.wishlist)) {
+    data.wishlist.forEach(function(id){ if (typeof id === "string" && CARD_BY_ID[id] && !state.wishlist.has(id)) { state.wishlist.add(id); added++; } });
+  }
+  if (Number(data.budget) > 0 && !state.budget) { state.budget = Math.round(Number(data.budget) * 100) / 100; added++; }
+  if (added) {
+    renderAllSetHeads();
+    renderTopProgress();
     refreshOpenGrids();
-  }, 150));
+    updateWishlistBadge();
+    renderWishlistSummary();
+    if (ui.tab === "overview") renderOverview();
+    if (ui.tab === "spending") renderSpendingView();
+    scheduleSave();
+  }
+  return added;
+}
 
-  ["filterColor","filterRarity","filterType"].forEach(function(id, idx){
-    var key = ["color","rarity","type"][idx];
-    var el = document.getElementById(id);
-    el.value = filters[key];
-    el.addEventListener("change", function(){
-      filters[key] = el.value;
-      refreshOpenGrids();
-      applySearchVisibility();
+function restoreFromText(text){
+  var data;
+  try { data = JSON.parse(String(text)); } catch(err){ data = null; }
+  if (!data || typeof data !== "object") {
+    showToast("That doesn't look like a Braverse Binder backup.", { kind: "error" });
+    return false;
+  }
+  var added = importState(data);
+  showToast(added ? "Restored " + fmtInt(added) + (added === 1 ? " item" : " items") + " from the backup." : "Nothing new to restore. Everything in that backup is already here.");
+  return true;
+}
+
+function wireBackup(){
+  function currentPayload(){
+    return JSON.stringify({ owned: Array.from(state.owned), spending: state.spending, wishlist: Array.from(state.wishlist), budget: state.budget || 0, exportedAt: new Date().toISOString() }, null, 2);
+  }
+  byId("exportBtn").addEventListener("click", function(){
+    openTextModal({
+      title: "Backup your collection",
+      sub: 'Copy this and keep it somewhere safe, like a note or an email to yourself. Paste it back in later with <strong>Restore JSON</strong>.',
+      text: currentPayload()
     });
   });
-
-  document.querySelectorAll(".ownership-seg button").forEach(function(btn){
-    btn.setAttribute("aria-pressed", btn.getAttribute("data-view") === filters.view ? "true" : "false");
-    btn.addEventListener("click", function(){ setOwnershipView(btn.getAttribute("data-view")); });
+  byId("importBtn").addEventListener("click", function(){
+    openTextModal({
+      title: "Restore a backup",
+      sub: 'Paste a backup here, or <button type="button" class="linkbtn" id="pickBackupFile">choose a .json file</button>. Restoring only adds to your collection. It never removes anything.',
+      editable: true,
+      placeholder: "Paste backup JSON here",
+      primaryLabel: "Restore",
+      onPrimary: function(){
+        var text = byId("backupText").value;
+        if (!text.trim()) { showToast("Paste a backup first.", { kind: "error" }); return; }
+        if (restoreFromText(text)) closeTextModal();
+      }
+    });
+    var pick = byId("pickBackupFile");
+    if (pick) pick.addEventListener("click", function(){ byId("importFile").click(); });
   });
-
-  document.getElementById("expandAllBtn").addEventListener("click", function(){
-    if (document.querySelector(".set:not(.open)")) playSlide(true, true);
-    document.querySelectorAll(".set").forEach(function(el){ setOpen(el, true); });
+  byId("backupCloseBtn").addEventListener("click", closeTextModal);
+  byId("backupDoneBtn").addEventListener("click", closeTextModal);
+  byId("backupOverlay").addEventListener("click", function(e){
+    if (e.target === this) closeTextModal();
   });
-  document.getElementById("collapseAllBtn").addEventListener("click", function(){
-    if (document.querySelector(".set.open")) playSlide(false, true);
-    document.querySelectorAll(".set").forEach(function(el){ setOpen(el, false); });
-  });
-
-  function openBackupModal(){
-    var payload = JSON.stringify({ owned: Array.from(state.owned), spending: state.spending, wishlist: Array.from(state.wishlist), exportedAt: new Date().toISOString() }, null, 2);
-    var ta = document.getElementById("backupText");
-    ta.value = payload;
-    document.getElementById("backupCopyBtn").textContent = "Copy to clipboard";
-    document.getElementById("backupOverlay").hidden = false;
-    ta.focus();
-    ta.select();
-  }
-  function closeBackupModal(){
-    document.getElementById("backupOverlay").hidden = true;
-  }
-  document.getElementById("exportBtn").addEventListener("click", openBackupModal);
-  document.getElementById("backupCloseBtn").addEventListener("click", closeBackupModal);
-  document.getElementById("backupDoneBtn").addEventListener("click", closeBackupModal);
-  document.getElementById("backupOverlay").addEventListener("click", function(e){
-    if (e.target === this) closeBackupModal();
-  });
-  document.addEventListener("keydown", function(e){
-    if (e.key === "Escape" && !document.getElementById("backupOverlay").hidden) closeBackupModal();
-  });
-  document.getElementById("backupCopyBtn").addEventListener("click", function(){
-    var ta = document.getElementById("backupText");
+  byId("backupCopyBtn").addEventListener("click", function(){
+    if (textModal.onPrimary) { textModal.onPrimary(); return; }
+    var ta = byId("backupText");
     var btn = this;
     function showCopied(){
-      btn.textContent = "Copied!";
-      setTimeout(function(){ btn.textContent = "Copy to clipboard"; }, 1600);
+      btn.textContent = "Copied";
+      setTimeout(function(){ btn.textContent = textModal.primaryLabel; }, 1600);
     }
     function fallback(){
       ta.focus(); ta.select();
       try { document.execCommand("copy"); showCopied(); }
-      catch(e){ btn.textContent = "Select all + Ctrl/Cmd+C"; setTimeout(function(){ btn.textContent = "Copy to clipboard"; }, 2200); }
+      catch(e){ btn.textContent = "Select all, then Ctrl/Cmd+C"; setTimeout(function(){ btn.textContent = textModal.primaryLabel; }, 2200); }
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(ta.value).then(showCopied).catch(fallback);
@@ -1369,67 +2811,150 @@ function wireControls(){
       fallback();
     }
   });
-
-  document.getElementById("importBtn").addEventListener("click", function(){
-    document.getElementById("importFile").click();
-  });
-  document.getElementById("importFile").addEventListener("change", function(e){
+  byId("importFile").addEventListener("change", function(e){
     var file = e.target.files && e.target.files[0];
     if (!file) return;
     var reader = new FileReader();
     reader.onload = function(){
-      try {
-        var data = JSON.parse(String(reader.result));
-        var changed = false;
-        if (Array.isArray(data.owned)) {
-          data.owned.forEach(function(id){ state.owned.add(id); });
-          changed = true;
-        }
-        if (Array.isArray(data.spending)) {
-          var existingIds = {};
-          state.spending.forEach(function(en){ existingIds[en.id] = true; });
-          data.spending.forEach(function(raw){
-            var n = normalizeSpendEntry(raw);
-            if (n && !existingIds[n.id]) { state.spending.push(n); existingIds[n.id] = true; }
-          });
-          changed = true;
-        }
-        if (Array.isArray(data.wishlist)) {
-          data.wishlist.forEach(function(id){ if (typeof id === "string") state.wishlist.add(id); });
-          updateWishlistBadge();
-          changed = true;
-        }
-        if (changed) {
-          renderAllSetHeads();
-          renderTopProgress();
-          refreshOpenGrids();
-          renderWishlistSummary();
-          if (ui.tab === "spending") renderSpendingView();
-          scheduleSave();
-        }
-      } catch(err) { if (window.console) console.warn("Braverse Binder: import failed", err); }
+      if (restoreFromText(reader.result)) closeTextModal();
       e.target.value = "";
     };
     reader.readAsText(file);
   });
 }
 
+/* ===== Controls ===== */
+function wireControls(){
+  byId("sets").addEventListener("click", function(e){
+    if (onWishClick(e)) return;
+    if (onZoomClick(e)) return;
+    if (onPagerClick(e)) return;
+    onGridClick(e);
+    onSetsClick(e);
+  });
+  byId("sets").addEventListener("keydown", onSetsKeydown);
+  wireBinderSwipe();
+
+  byId("wishlistSummaryGrid").addEventListener("click", function(e){
+    if (onWishClick(e)) return;
+    if (onZoomClick(e)) return;
+    onGridClick(e);
+  });
+  byId("overviewView").addEventListener("click", onOverviewClick);
+
+  var searchInput = byId("search");
+  searchInput.value = filters.q;
+  searchInput.addEventListener("input", debounce(function(){
+    filters.q = searchInput.value.trim().toLowerCase();
+    resetBinderPages();
+    applySearchVisibility();
+  }, 150));
+
+  ["filterColor","filterRarity","filterType"].forEach(function(id, idx){
+    var key = ["color","rarity","type"][idx];
+    var el = byId(id);
+    el.value = filters[key];
+    el.addEventListener("change", function(){
+      filters[key] = el.value;
+      resetBinderPages();
+      applySearchVisibility();
+    });
+  });
+
+  var sortSel = byId("filterSort");
+  sortSel.value = filters.sort;
+  sortSel.addEventListener("change", function(){
+    filters.sort = sortSel.value;
+    savePrefs();
+    refreshOpenGrids();
+  });
+
+  document.querySelectorAll("#layoutSeg button").forEach(function(btn){
+    btn.addEventListener("click", function(){ setLayout(btn.getAttribute("data-layout")); });
+  });
+
+  document.querySelectorAll(".ownership-seg button").forEach(function(btn){
+    btn.setAttribute("aria-pressed", btn.getAttribute("data-view") === filters.view ? "true" : "false");
+    btn.addEventListener("click", function(){ resetBinderPages(); setOwnershipView(btn.getAttribute("data-view")); });
+  });
+
+  byId("clearFiltersBtn").addEventListener("click", clearFilters);
+
+  byId("expandAllBtn").addEventListener("click", function(){
+    if (document.querySelector(".set:not(.open)")) playSlide(true, true);
+    document.querySelectorAll(".set").forEach(function(el){ if (!el.hidden) setOpen(el, true); });
+  });
+  byId("collapseAllBtn").addEventListener("click", function(){
+    if (document.querySelector(".set.open")) playSlide(false, true);
+    document.querySelectorAll(".set").forEach(function(el){ setOpen(el, false); });
+  });
+
+  wireBackup();
+
+  var cardOverlay = byId("cardOverlay");
+  cardOverlay.addEventListener("click", onCardModalClick);
+
+  document.addEventListener("keydown", function(e){
+    if (onCardModalKey(e)) return;
+    if (e.key === "Escape" && !byId("backupOverlay").hidden) { closeTextModal(); return; }
+    var tag = e.target && e.target.tagName;
+    if (e.key === "/" && (ui.tab === "collection" || ui.tab === "wishlist") && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT" && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      byId("search").focus();
+    }
+  });
+
+  /* Back to top, once the page is long enough to want it. */
+  var toTop = byId("toTop"), ticking = false;
+  window.addEventListener("scroll", function(){
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function(){ ticking = false; toTop.hidden = window.scrollY < 700; });
+  }, { passive: true });
+  toTop.addEventListener("click", function(){ window.scrollTo({ top: 0, behavior: "smooth" }); });
+
+  /* Re-flow what depends on width: binder spreads, and charts (which are
+     drawn at the width of their box). */
+  if (binderMQ) {
+    var onMQ = function(){ if (ui.layout === "binder") refreshOpenGrids(); };
+    if (binderMQ.addEventListener) binderMQ.addEventListener("change", onMQ);
+    else if (binderMQ.addListener) binderMQ.addListener(onMQ);
+  }
+  var lastW = window.innerWidth;
+  window.addEventListener("resize", debounce(function(){
+    if (window.innerWidth === lastW) return;
+    lastW = window.innerWidth;
+    if (ui.tab === "spending") renderSpendCharts();
+  }, 180));
+}
+
 /* ===== Init ===== */
 function init(){
+  var loaded = loadInitialState();
+  state.owned = loaded.owned;
+  state.wishlist = loaded.wishlist;
+  state.spending = loaded.spending;
+  state.budget = loaded.budget;
   var restoredFromStash = restoreUiStateIfAny();
   populateFilterOptions();
   buildSetsSkeleton();
   wireControls();
   wireSpendingControls();
   wireViewTabs();
+  wireCardModalTilt();
   updateWishlistBadge();
   renderAllSetHeads();
   renderTopProgress();
+  setLayout(ui.layout);
   ui.expanded.forEach(function(code){
-    var el = document.querySelector('.set[data-code="' + cssEsc(code) + '"]');
+    var el = getSetEl(code);
     if (el) setOpen(el, true, true);
   });
-  document.getElementById("search").value = filters.q;
+  byId("search").value = filters.q;
+  byId("filterColor").value = filters.color;
+  byId("filterRarity").value = filters.rarity;
+  byId("filterType").value = filters.type;
+  if (ui.histSeries || ui.histKind || ui.histSort !== "new") byId("histSort").value = ui.histSort;
   if (filters.q) applySearchVisibility();
   renderWishlistSummary();
   wireFoilTracking();
@@ -1438,9 +2963,14 @@ function init(){
      cycle) restores whichever tab the stash remembers -- that continuity
      matters more than the URL. Otherwise, a hash from a shared link or the
      browser's own back/forward takes over. */
-  var initialTab = restoredFromStash ? (ui.tab || "collection") : (tabFromHash() || ui.tab || "collection");
-  setTab(initialTab, { replace: true, skipAnim: true });
+  var initialTab = restoredFromStash ? (ui.tab || "overview") : (tabFromHash() || "overview");
+  setTab(initialTab, { replace: true, skipAnim: true, keepScroll: true });
+  var boot = byId("bootNote");
+  if (boot && boot.parentNode) boot.parentNode.removeChild(boot);
+  document.documentElement.classList.add("ready");
   ensureArtifact().then(function(ns){ setSyncState(ns ? "saved" : "local"); });
+  /* This browser holds changes newer than the page: publish them again. */
+  if (loaded.unpublished) scheduleSave();
   if (pendingScrollY != null) {
     requestAnimationFrame(function(){ window.scrollTo(0, pendingScrollY); });
   }
