@@ -14,7 +14,7 @@ source you edit; the artifact is just where the finished page ends up.
   wraps around the JS-rendered content.
 - `set_meta.json` — booster set / starter deck metadata (names, codes,
   group labels).
-- `cards_with_img_v2.json` — **all 2,244 cards**, each as a
+- `cards_with_img_v2.json` — **all 2,274 cards**, each as a
   `[id, setCode, cardNumber, name, rarityLetter, cardType, color, setName,
   base64WebP]` tuple. The card art is embedded directly as base64 WEBP
   (104×145px, ~5–7KB each) — there is no external image loading. This file

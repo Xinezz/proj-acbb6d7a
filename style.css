@@ -1007,6 +1007,15 @@ footer a { color: var(--muted); text-decoration: underline; }
   .spend-row { gap: 8px; }
 }
 
+/* Mute toggle for the add-card pop -- icon-only and fixed-width so it sits
+   at the end of the Expand/Collapse row (on mobile too) without stretching. */
+.sound-toggle { flex: none; padding-left: 10px; padding-right: 10px; }
+.sound-toggle svg { width: 17px; height: 17px; display: block; }
+.sound-toggle .snd-off { display: none; }
+.sound-toggle[aria-pressed="false"] .snd-on { display: none; }
+.sound-toggle[aria-pressed="false"] .snd-off { display: block; }
+.sound-toggle[aria-pressed="false"] { color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
   .card-tile[data-tier="high"] { transform: none !important; }

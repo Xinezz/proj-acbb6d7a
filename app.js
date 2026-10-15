@@ -49,6 +49,21 @@ for (var i = 0; i < CARDS.length; i++) {
   if (!CARDS_BY_SET[setCode]) CARDS_BY_SET[setCode] = [];
   CARDS_BY_SET[setCode].push(c);
 }
+/* Show each set in binder order -- 001 first, each alt-art/promo version
+   (@1, @2 ...) right after its base card -- the same order as the official
+   card list and a physical binder. The source data happens to be stored
+   newest-number-first, which used to put a set's commons at the very bottom
+   of a long grid where they were easy to miss entirely. */
+function cardOrderKey(id){
+  var m = /[-_](\d+)(?:@(\d+))?$/.exec(id);
+  return m ? [parseInt(m[1], 10), m[2] ? parseInt(m[2], 10) : 0] : [99999, 0];
+}
+Object.keys(CARDS_BY_SET).forEach(function(code){
+  CARDS_BY_SET[code].sort(function(a, b){
+    var ka = cardOrderKey(a[0]), kb = cardOrderKey(b[0]);
+    return (ka[0] - kb[0]) || (ka[1] - kb[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  });
+});
 var SET_LABEL = {};
 SET_META.forEach(function(s){ SET_LABEL[s[0]] = s[1]; });
 
@@ -528,6 +543,128 @@ function doSave(){
   });
 }
 
+/* ===== Sound ===== */
+/* A soft "pop" when a card goes into the binder, synthesized with the Web
+   Audio API rather than shipped as an audio file -- no extra download, and
+   nothing for the 16MB artifact cap to worry about. The tone sweeps upward
+   (a bright, bubbly pop) when a card is added and a little downward, quieter,
+   when it's taken out, so the two read differently without looking. A few
+   cents of random detune keeps a run of quick clicks from sounding robotic.
+   The on/off choice is a per-viewer convenience, so it lives in this
+   browser's localStorage, not in the shared collection state. */
+var SOUND_KEY = "crb_sound_on";
+var soundOn = true;
+try { soundOn = localStorage.getItem(SOUND_KEY) !== "0"; } catch(e){}
+var audioCtx = null;
+
+function getAudioCtx(){
+  if (audioCtx) return audioCtx;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try { audioCtx = new AC(); } catch(e){ return null; }
+  return audioCtx;
+}
+
+function popVoice(ctx, t, type, f0, f1, sweep, peak, decay, detune){
+  var osc = ctx.createOscillator();
+  var gain = ctx.createGain();
+  osc.type = type;
+  osc.detune.value = detune;
+  osc.frequency.setValueAtTime(f0, t);
+  osc.frequency.exponentialRampToValueAtTime(f1, t + sweep);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(peak, t + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + decay + 0.02);
+}
+
+function playPop(adding){
+  if (!soundOn) return;
+  var ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+    var t = ctx.currentTime + 0.005;
+    var detune = (Math.random() - 0.5) * 80;
+    if (adding) {
+      popVoice(ctx, t, "sine", 320, 820, 0.05, 0.22, 0.14, detune);        /* the pop body */
+      popVoice(ctx, t, "triangle", 1650, 1100, 0.04, 0.035, 0.06, detune); /* a little sparkle on top */
+    } else {
+      popVoice(ctx, t, "sine", 540, 250, 0.07, 0.11, 0.11, detune);
+    }
+  } catch(e){}
+}
+
+/* The "pulled down" sound for opening a set: a breathy slide of filtered
+   noise whose pitch falls as the list drops open, finished by a soft low
+   thud as it settles -- like a drawer or a binder page dropping into place.
+   Closing plays the same slide rising and shorter, with no thud, so it reads
+   as tucking the list back up. Expand all / Collapse all use a slightly
+   longer, fuller version (one sound for the whole batch, not one per set). */
+var noiseBuf = null;
+function getNoiseBuffer(ctx){
+  if (noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf;
+  var len = Math.floor(ctx.sampleRate * 0.6);
+  noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return noiseBuf;
+}
+
+function playSlide(opening, big){
+  if (!soundOn) return;
+  var ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+    var t = ctx.currentTime + 0.005;
+    var dur = opening ? (big ? 0.34 : 0.24) : (big ? 0.22 : 0.16);
+    var src = ctx.createBufferSource();
+    src.buffer = getNoiseBuffer(ctx);
+    var bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 1.4;
+    var fHi = 2600, fLo = 420;
+    bp.frequency.setValueAtTime(opening ? fHi : fLo, t);
+    bp.frequency.exponentialRampToValueAtTime(opening ? fLo : fHi, t + dur);
+    var g = ctx.createGain();
+    var peak = opening ? (big ? 0.2 : 0.16) : (big ? 0.11 : 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+    if (opening) {
+      /* the soft landing as the list settles open */
+      popVoice(ctx, t + dur * 0.8, "sine", 170, 95, 0.09, big ? 0.16 : 0.12, 0.14, 0);
+    }
+  } catch(e){}
+}
+
+function renderSoundToggle(){
+  var btn = document.getElementById("soundToggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", soundOn ? "true" : "false");
+  btn.title = soundOn ? "Sound on — click to mute" : "Sound off — click to unmute";
+  btn.setAttribute("aria-label", soundOn ? "Mute card sounds" : "Unmute card sounds");
+}
+
+function wireSoundToggle(){
+  var btn = document.getElementById("soundToggle");
+  if (!btn) return;
+  renderSoundToggle();
+  btn.addEventListener("click", function(){
+    soundOn = !soundOn;
+    try { localStorage.setItem(SOUND_KEY, soundOn ? "1" : "0"); } catch(e){}
+    renderSoundToggle();
+    if (soundOn) playPop(true); /* a preview, so unmuting confirms itself */
+  });
+}
+
 /* ===== Interactions ===== */
 function toggleCard(id){
   if (state.owned.has(id)) state.owned.delete(id); else state.owned.add(id);
@@ -590,6 +727,7 @@ function onGridClick(e){
   var id = tile.getAttribute("data-id");
   toggleCard(id);
   var nowOwned = state.owned.has(id);
+  playPop(nowOwned);
   document.querySelectorAll('.card-tile[data-id="' + cssEsc(id) + '"]').forEach(function(el){
     el.setAttribute("data-owned", nowOwned);
   });
@@ -608,13 +746,18 @@ function onSetsClick(e){
     var code = actBtn.getAttribute("data-code");
     setOwnershipView(act === "view-owned" ? "owned" : "missing");
     var setEl = document.querySelector('.set[data-code="' + cssEsc(code) + '"]');
-    if (setEl) setOpen(setEl, true);
+    if (setEl) {
+      if (!setEl.classList.contains("open")) playSlide(true);
+      setOpen(setEl, true);
+    }
     return;
   }
   var head = e.target.closest ? e.target.closest(".set-head") : null;
   if (head) {
     var setEl2 = head.closest(".set");
-    setOpen(setEl2, !setEl2.classList.contains("open"));
+    var willOpen2 = !setEl2.classList.contains("open");
+    playSlide(willOpen2);
+    setOpen(setEl2, willOpen2);
   }
 }
 
@@ -624,7 +767,9 @@ function onSetsKeydown(e){
   if (!head) return;
   e.preventDefault();
   var setEl = head.closest(".set");
-  setOpen(setEl, !setEl.classList.contains("open"));
+  var willOpen = !setEl.classList.contains("open");
+  playSlide(willOpen);
+  setOpen(setEl, willOpen);
 }
 
 function debounce(fn, ms){
@@ -1177,9 +1322,11 @@ function wireControls(){
   });
 
   document.getElementById("expandAllBtn").addEventListener("click", function(){
+    if (document.querySelector(".set:not(.open)")) playSlide(true, true);
     document.querySelectorAll(".set").forEach(function(el){ setOpen(el, true); });
   });
   document.getElementById("collapseAllBtn").addEventListener("click", function(){
+    if (document.querySelector(".set.open")) playSlide(false, true);
     document.querySelectorAll(".set").forEach(function(el){ setOpen(el, false); });
   });
 
@@ -1286,6 +1433,7 @@ function init(){
   if (filters.q) applySearchVisibility();
   renderWishlistSummary();
   wireFoilTracking();
+  wireSoundToggle();
   /* A reload right after a save (the artifact's own publish-and-reload
      cycle) restores whichever tab the stash remembers -- that continuity
      matters more than the URL. Otherwise, a hash from a shared link or the
