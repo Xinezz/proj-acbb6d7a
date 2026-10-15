@@ -452,7 +452,28 @@ select.filter:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ---------- Binder layout ---------- */
 .binder { padding: 2px 0; }
-.binder-stage { outline: none; touch-action: pan-y; }
+.binder-stage { position: relative; outline: none; touch-action: pan-y; }
+
+/* ---- Page turn ----
+   While a page turns, the spread is replaced by a copy ("flipping") holding the
+   pages underneath plus a leaf that pivots in 3D. The finished spread waits
+   invisibly next to it and is swapped in when the leaf lands. */
+.binder-spread.flip-final { position: absolute; left: 0; right: 0; top: 0; opacity: 0; pointer-events: none; }
+.binder-spread.flipping { perspective: 3800px; perspective-origin: 50% 40%; pointer-events: none; }
+.binder-spread.flipping.two::before { z-index: 6; }
+.leaf { position: absolute; z-index: 5; transform-style: preserve-3d; will-change: transform; pointer-events: none; }
+.leaf-face { position: absolute; inset: 0; overflow: hidden; border-radius: 8px; background: #fffefa; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.leaf-face.back { transform: rotateY(180deg); }
+.leaf-face .binder-page { height: 100%; margin: 0 !important; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(190, 150, 50, 0.4); }
+.leaf-face.plain { background: linear-gradient(135deg, #fffdf6, #f5ebcd); box-shadow: inset 0 0 0 1px rgba(190, 150, 50, 0.4); }
+/* The leaf darkens as it goes edge-on, more toward its free edge than the hinge. */
+.leaf-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0.04; }
+.hinge-l .leaf-face.front .leaf-shade, .hinge-r .leaf-face.back .leaf-shade { background: linear-gradient(to right, rgba(70, 45, 6, 0), rgba(70, 45, 6, 0.85)); }
+.hinge-l .leaf-face.back .leaf-shade, .hinge-r .leaf-face.front .leaf-shade { background: linear-gradient(to left, rgba(70, 45, 6, 0), rgba(70, 45, 6, 0.85)); }
+/* Soft shadow thrown onto the pages beneath, darkest by the spine. */
+.flip-cast { position: absolute; z-index: 3; pointer-events: none; opacity: 0; border-radius: 8px; }
+.cast-r { background: linear-gradient(to right, rgba(60, 40, 5, 0.6), rgba(60, 40, 5, 0) 74%); }
+.cast-l { background: linear-gradient(to left, rgba(60, 40, 5, 0.6), rgba(60, 40, 5, 0) 74%); }
 
 /* The cover: champagne gold, with the pages sitting inside it. */
 .binder-spread {

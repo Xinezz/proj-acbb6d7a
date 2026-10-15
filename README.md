@@ -19,7 +19,9 @@ Four pages, addressed by a bare hash (`#overview`, `#collection`,
   stored.
 - **Collection** — every set as an accordion, shown either as **Binder**
   (3×3 pocket pages, two-page spreads on wide screens, page slider, swipe and
-  arrow keys) or as a **Grid** (names, tags, sortable). Search, color /
+  arrow keys, with a 3D page-turn: a leaf pivots on the spine with shading,
+  cast shadows and a paper sound; off under reduced-motion, and the slider
+  scrubs instantly) or as a **Grid** (names, tags, sortable). Search, color /
   rarity / type filters, owned / missing view. Each card has a detail view
   (the magnifier on a tile).
 - **Wishlist** — one flat list of wanted cards in release order.

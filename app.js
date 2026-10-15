@@ -416,15 +416,29 @@ function binderPageLabel(first, per, pages){
   return "Page " + (first + 1) + " of " + pages;
 }
 
+function binderPagerHtml(code, m, first){
+  if (m.pages <= m.per) return '';
+  return '<div class="binder-pager">' +
+    '<button type="button" class="pager-btn" data-act="page-prev" data-code="' + esc(code) + '" aria-label="Previous pages"' + (first <= 0 ? ' disabled' : '') + '>' + CHEV_L_SVG + '</button>' +
+    '<input type="range" class="pager-range" data-code="' + esc(code) + '" min="1" max="' + (m.lastFirst + 1) + '" step="' + m.per + '" value="' + (first + 1) + '" aria-label="Turn to page">' +
+    '<button type="button" class="pager-btn" data-act="page-next" data-code="' + esc(code) + '" aria-label="Next pages"' + (first >= m.lastFirst ? ' disabled' : '') + '>' + CHEV_R_SVG + '</button>' +
+    '<span class="pager-label mono"></span>' +
+  '</div>';
+}
+
 function renderBinder(setEl, code, list, opts){
   opts = opts || {};
+  finishActiveFlip();
   var host = setEl.querySelector(".binder");
   var m = binderMeta(code);
   var first = Math.min(ui.binderPage[code] || 0, m.lastFirst);
   first -= first % m.per;
   ui.binderPage[code] = first;
 
-  var html = '<div class="binder-spread' + (m.per === 2 ? ' two' : '') + (opts.turn ? ' ' + opts.turn : '') + '">';
+  /* The quick slide is only for slider scrubbing. A real turn (button, swipe
+     or arrow key) gets the full page-turn instead. */
+  var turnClass = (opts.turn && !opts.flip) ? ' ' + opts.turn : '';
+  var html = '<div class="binder-spread' + (m.per === 2 ? ' two' : '') + turnClass + '">';
   for (var p = 0; p < m.per; p++) {
     var pi = first + p;
     if (pi >= m.pages) { html += '<div class="binder-page blank" aria-hidden="true"></div>'; continue; }
@@ -436,28 +450,168 @@ function renderBinder(setEl, code, list, opts){
   }
   html += '</div>';
 
+  var pager = binderPagerHtml(code, m, first);
   var stage = host.querySelector(".binder-stage");
+  var handled = false;
   if (stage && opts.keepPager) {
     stage.innerHTML = html;
-  } else {
-    var pager = '';
-    if (m.pages > m.per) {
-      pager =
-        '<div class="binder-pager">' +
-          '<button type="button" class="pager-btn" data-act="page-prev" data-code="' + esc(code) + '" aria-label="Previous pages"' + (first <= 0 ? ' disabled' : '') + '>' + CHEV_L_SVG + '</button>' +
-          '<input type="range" class="pager-range" data-code="' + esc(code) + '" min="1" max="' + (m.lastFirst + 1) + '" step="' + m.per + '" value="' + (first + 1) + '" aria-label="Turn to page">' +
-          '<button type="button" class="pager-btn" data-act="page-next" data-code="' + esc(code) + '" aria-label="Next pages"' + (first >= m.lastFirst ? ' disabled' : '') + '>' + CHEV_R_SVG + '</button>' +
-          '<span class="pager-label mono"></span>' +
-        '</div>';
+    handled = true;
+  } else if (stage && opts.flip && canFlip()) {
+    if (flipBinder(stage, html, opts.flip === "next")) {
+      var oldPager = host.querySelector(".binder-pager");
+      if (oldPager) oldPager.parentNode.removeChild(oldPager);
+      if (pager) host.insertAdjacentHTML("beforeend", pager);
+      handled = true;
     }
-    host.innerHTML = '<div class="binder-stage" tabindex="-1">' + html + '</div>' + pager;
   }
+  if (!handled) host.innerHTML = '<div class="binder-stage" tabindex="-1">' + html + '</div>' + pager;
+
   var label = host.querySelector(".pager-label");
   if (label) label.textContent = binderPageLabel(first, m.per, m.pages);
   var prev = host.querySelector('[data-act="page-prev"]'), next = host.querySelector('[data-act="page-next"]');
   if (prev) prev.disabled = first <= 0;
   if (next) next.disabled = first >= m.lastFirst;
   refreshBinderCounts(setEl);
+}
+
+/* ===== Page-turn animation =====
+   A turn is drawn as a real leaf. For two pages, the leaf is the right page
+   (turning forward) or the left page (turning back); it pivots on the spine
+   in 3D, showing the old page on its front and the page it lands on as its
+   back. The pages underneath are the ones being uncovered and covered. The
+   leaf darkens as it goes edge-on and throws a soft shadow on the pages it
+   passes over. When it lands, the finished spread (already built and decoded
+   out of sight) is swapped in, so there is no flicker and the controls are
+   live again immediately. On a phone, with a single page, the page lifts off
+   and swings away to the left, or swings back in from it. */
+var activeFlip = null;
+
+function canFlip(){
+  if (!(window.Element && Element.prototype.animate)) return false;
+  return !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+function finishActiveFlip(){
+  if (!activeFlip) return;
+  var f = activeFlip;
+  activeFlip = null;
+  f.finish();
+}
+
+function binderPages(spread){
+  return Array.prototype.filter.call(spread.children, function(c){ return c.classList.contains("binder-page"); });
+}
+
+function flipBinder(stage, newHtml, next){
+  var oldSpread = stage.querySelector(".binder-spread");
+  if (!oldSpread) return false;
+  var holder = document.createElement("div");
+  holder.innerHTML = newHtml;
+  var newSpread = holder.firstChild;
+  var two = oldSpread.classList.contains("two");
+  var oldPages = binderPages(oldSpread), newPages = binderPages(newSpread);
+  if (!oldPages.length || oldPages.length !== newPages.length || two !== newSpread.classList.contains("two")) return false;
+  var sr = oldSpread.getBoundingClientRect();
+  if (!sr.width || !sr.height) return false;
+  refreshBinderCounts(newSpread);
+
+  function boxOf(el){
+    var r = el.getBoundingClientRect();
+    return { left: r.left - sr.left, top: r.top - sr.top, width: r.width, height: r.height };
+  }
+  function place(el, b){
+    el.style.left = b.left + "px"; el.style.top = b.top + "px";
+    el.style.width = b.width + "px"; el.style.height = b.height + "px";
+  }
+  function clone(el){ return el.cloneNode(true); }
+
+  var bases, front, back = null, leafBox, hingeLeft, from, to, gap = 0, castL = null, castR = null;
+  if (two) {
+    var lBox = boxOf(oldPages[0]), rBox = boxOf(oldPages[1]);
+    if (next) {
+      bases = [clone(oldPages[0]), clone(newPages[1])];
+      front = clone(oldPages[1]); back = clone(newPages[0]);
+      leafBox = rBox; hingeLeft = true; from = 0; to = -180;
+      gap = parseFloat(getComputedStyle(oldPages[1]).marginLeft) || 0;
+    } else {
+      bases = [clone(newPages[0]), clone(oldPages[1])];
+      front = clone(oldPages[0]); back = clone(newPages[1]);
+      leafBox = lBox; hingeLeft = false; from = 0; to = 180;
+      gap = parseFloat(getComputedStyle(oldPages[0]).marginRight) || 0;
+    }
+    castL = document.createElement("div"); castL.className = "flip-cast cast-l"; place(castL, lBox);
+    castR = document.createElement("div"); castR.className = "flip-cast cast-r"; place(castR, rBox);
+  } else {
+    leafBox = boxOf(oldPages[0]); hingeLeft = true;
+    if (next) { bases = [clone(newPages[0])]; front = clone(oldPages[0]); from = 0; to = -180; }
+    else { bases = [clone(oldPages[0])]; front = clone(newPages[0]); from = -180; to = 0; }
+    castR = document.createElement("div"); castR.className = "flip-cast cast-r"; place(castR, leafBox);
+  }
+
+  function shade(){ var d = document.createElement("span"); d.className = "leaf-shade"; return d; }
+  function face(cls, content){
+    var f = document.createElement("div");
+    f.className = "leaf-face " + cls + (content ? "" : " plain");
+    if (content) f.appendChild(content);
+    f.appendChild(shade());
+    return f;
+  }
+  var leaf = document.createElement("div");
+  leaf.className = "leaf " + (hingeLeft ? "hinge-l" : "hinge-r");
+  place(leaf, leafBox);
+  leaf.style.transformOrigin = (two ? (hingeLeft ? -gap : leafBox.width + gap) : 0) + "px 50%";
+  leaf.appendChild(face("front", front));
+  leaf.appendChild(face("back", back));
+
+  var flipEl = document.createElement("div");
+  flipEl.className = "binder-spread flipping" + (two ? " two" : "");
+  flipEl.style.height = sr.height + "px";
+  bases.forEach(function(b){ flipEl.appendChild(b); });
+  if (castL) flipEl.appendChild(castL);
+  if (castR) flipEl.appendChild(castR);
+  flipEl.appendChild(leaf);
+
+  stage.style.minHeight = sr.height + "px";
+  newSpread.classList.add("flip-final");
+  stage.replaceChild(flipEl, oldSpread);
+  stage.appendChild(newSpread);
+
+  var dur = two ? 980 : 780, ease = "cubic-bezier(.55,.05,.25,1)", mid = (from + to) / 2;
+  var anims = [];
+  anims.push(leaf.animate([
+    { transform: "rotateY(" + from + "deg) translateZ(0px)" },
+    { transform: "rotateY(" + mid + "deg) translateZ(14px)", offset: 0.5 },
+    { transform: "rotateY(" + to + "deg) translateZ(0px)" }
+  ], { duration: dur, easing: ease, fill: "forwards" }));
+  var shadeFrames = [{ opacity: 0.04 }, { opacity: 0.62, offset: 0.5 }, { opacity: 0.04 }];
+  Array.prototype.forEach.call(leaf.querySelectorAll(".leaf-shade"), function(el){
+    anims.push(el.animate(shadeFrames, { duration: dur, easing: ease, fill: "forwards" }));
+  });
+  /* Shadow on the page the leaf is leaving, strongest as it lifts, and on the
+     page it lands on, strongest as it comes down. */
+  var leaveFrames = [{ opacity: 0 }, { opacity: 0.45, offset: 0.26 }, { opacity: 0.12, offset: 0.5 }, { opacity: 0, offset: 0.64 }, { opacity: 0 }];
+  var landFrames = [{ opacity: 0 }, { opacity: 0, offset: 0.36 }, { opacity: 0.14, offset: 0.52 }, { opacity: 0.5, offset: 0.82 }, { opacity: 0 }];
+  function cast(el, frames){ if (el) anims.push(el.animate(frames, { duration: dur, easing: ease, fill: "forwards" })); }
+  if (two) {
+    cast(hingeLeft ? castR : castL, leaveFrames);
+    cast(hingeLeft ? castL : castR, landFrames);
+  } else {
+    cast(castR, next ? leaveFrames : landFrames);
+  }
+
+  var done = false;
+  function finish(){
+    if (done) return;
+    done = true;
+    if (activeFlip && activeFlip.finish === finish) activeFlip = null;
+    anims.forEach(function(a){ try { a.cancel(); } catch(e){} });
+    if (flipEl.parentNode === stage) stage.replaceChild(newSpread, flipEl);
+    newSpread.classList.remove("flip-final");
+    stage.style.minHeight = "";
+  }
+  activeFlip = { finish: finish };
+  anims[0].finished.then(finish, finish);
+  return true;
 }
 
 /* Each visible page shows how many of its pockets are filled, so you can see
@@ -482,9 +636,11 @@ function turnBinder(code, target, opts){
   var first = Math.max(0, Math.min(m.lastFirst, target));
   first -= first % m.per;
   if (first === cur && !(opts && opts.force)) return;
-  var dir = first > cur ? "turn-next" : "turn-prev";
+  var forward = first > cur;
+  var scrubbing = !!(opts && opts.keepPager);
   ui.binderPage[code] = first;
-  renderSetBody(code, { turn: dir, keepPager: !!(opts && opts.keepPager) });
+  if (!scrubbing) playFlip();
+  renderSetBody(code, { turn: forward ? "turn-next" : "turn-prev", keepPager: scrubbing, flip: scrubbing ? null : (forward ? "next" : "prev") });
 }
 
 function renderSetBody(code, opts){
@@ -937,6 +1093,35 @@ function playSlide(opening, big){
       /* the soft landing as the list settles open */
       popVoice(ctx, t + dur * 0.8, "sine", 170, 95, 0.09, big ? 0.16 : 0.12, 0.14, 0);
     }
+  } catch(e){}
+}
+
+/* A page turning: a breathy rush of filtered noise that rises as the leaf
+   lifts and falls as it lands, then a soft low settle. It follows the same
+   mute switch as the other sounds. */
+function playFlip(){
+  if (!soundOn) return;
+  var ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+    var t = ctx.currentTime + 0.005, dur = 0.55;
+    var src = ctx.createBufferSource();
+    src.buffer = getNoiseBuffer(ctx);
+    var bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(900, t);
+    bp.frequency.exponentialRampToValueAtTime(3400, t + dur * 0.42);
+    bp.frequency.exponentialRampToValueAtTime(1300, t + dur);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.13, t + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+    popVoice(ctx, t + dur * 0.8, "sine", 200, 110, 0.07, 0.07, 0.1, 0);
   } catch(e){}
 }
 
