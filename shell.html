@@ -171,11 +171,14 @@
       <section class="panel" aria-labelledby="extraAddTitle">
         <div class="panel-head">
           <h3 id="extraAddTitle">Add extras</h3>
-          <p class="panel-sub">Search for a card, then set how many copies you have in total. One stays in the binder and the rest become extras.</p>
+          <p class="panel-sub">These are the cards in your binder. Press + to add a spare copy of one, and − to take one back.</p>
         </div>
-        <div class="search-wrap extra-search">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="9" cy="9" r="6.2"/><path d="M17 17l-4-4" stroke-linecap="round"/></svg>
-          <input id="extraSearch" type="search" placeholder="Search by name or number" autocomplete="off" aria-label="Search for a card to add extras">
+        <div class="extra-find">
+          <div class="search-wrap extra-search">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="9" cy="9" r="6.2"/><path d="M17 17l-4-4" stroke-linecap="round"/></svg>
+            <input id="extraSearch" type="search" placeholder="Search your cards" autocomplete="off" aria-label="Search your cards">
+          </div>
+          <select id="extraPickSet" class="filter" aria-label="Show cards from one set"></select>
         </div>
         <div id="extraResults" class="extra-results"></div>
       </section>

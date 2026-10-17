@@ -948,19 +948,25 @@ footer a { color: var(--ink-2); }
 .stepper button:hover:not(:disabled) { background: var(--gold-100); }
 .stepper button:active:not(:disabled) { background: var(--gold-200); }
 .stepper button:disabled { opacity: 0.35; cursor: default; }
+.stepper button[hidden] { display: none; }
+.stepper button[hidden] + output { min-width: 50px; }
 .stepper output { min-width: 42px; text-align: center; font-weight: 800; font-size: 0.95rem; }
 .stepper.big button { width: 44px; height: 44px; font-size: 1.35rem; }
 .stepper.big output { min-width: 56px; font-size: 1.15rem; }
 
-.extra-search { max-width: 520px; flex: none; }
+.extra-find { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.extra-search { flex: 1 1 260px; max-width: 520px; }
 .kpi-value .times { font-family: var(--font-body); font-weight: 700; font-size: 0.62em; margin-right: 3px; color: var(--gold-700); }
-.extra-results { display: grid; gap: 2px; margin-top: 12px; }
+.extra-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 2px 18px; margin-top: 12px; }
+.extra-results > p, .extra-more { grid-column: 1 / -1; }
+.extra-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; }
+.extra-more .panel-foot { margin-top: 0; }
 .extra-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 6px; border-radius: 12px; }
 .extra-row:hover { background: var(--cream); }
 .extra-thumb { width: 44px; aspect-ratio: 80 / 111; padding: 0; overflow: hidden; border: none; border-radius: 5px; background: var(--champagne); box-shadow: 0 0 0 1px var(--hairline); }
 .extra-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .extra-info { min-width: 0; }
-.extra-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; font-size: 0.92rem; }
+.extra-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-weight: 800; font-size: 0.92rem; line-height: 1.25; }
 .extra-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.74rem; color: var(--muted); }
 .extra-own { color: var(--ink-2); }
 
@@ -1105,6 +1111,7 @@ footer a { color: var(--ink-2); }
   .stepper button { width: 40px; height: 40px; }
   .extra-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
   .extra-thumb { width: 40px; }
+  .extra-find select.filter { width: 100%; }
   .view-tabs button { letter-spacing: 0; font-size: 0.64rem; }
 }
 

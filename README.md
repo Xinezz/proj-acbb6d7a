@@ -25,9 +25,10 @@ Five pages, addressed by a bare hash (`#overview`, `#collection`,
   rarity / type filters, owned / missing view. Each card has a detail view
   (the magnifier on a tile).
 - **Wishlist** — one flat list of wanted cards in release order.
-- **Extras** — spare copies. Search for a card and set how many copies you hold
-  in total (one stays in the binder, the rest are extras), or use the stepper
-  in a card's detail view. Spares are drawn as a physical pile: each extra adds
+- **Extras** — spare copies. Your owned cards are listed (filter by set, search,
+  "Show more"); press + to add a spare copy and − to take one back. A card with
+  only its binder copy has no − button, so it can't be removed from here; the
+  same stepper is in a card's detail view. Spares are drawn as a physical pile: each extra adds
   a slightly crooked card edge behind the top card, so the pile gets thicker the
   more you hold, with a gold `×N` count. The same pile shows behind the large
   card in the detail view, as card edges and a count chip on binder pockets and

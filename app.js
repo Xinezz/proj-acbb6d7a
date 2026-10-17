@@ -212,7 +212,7 @@ var ui = {
   expanded: new Set(), tab: "overview", layout: "binder", binderPage: {},
   breakdown: "rarity", range: "all",
   histSeries: "", histKind: "", histSort: "new", editSpendId: null,
-  extraSort: "most", extraSet: "", extraQuery: "", extraOrder: []
+  extraSort: "most", extraSet: "", extraQuery: "", extraPickSet: "", extraShow: 24, extraOrder: []
 };
 var pendingScrollY = null;
 
@@ -1308,7 +1308,7 @@ function applyOwnedToggle(id){
   renderTopProgress();
   refreshBinderCounts();
   if (nowOwned) announceMilestones(before);
-  if (ui.tab === "extras" && !hadExtras) { updateExtraRow(id); renderExtraKpis(); }
+  if (ui.tab === "extras") { renderExtraKpis(); refreshExtraPickSet(); renderExtraResults(); }
   if (!nowOwned && hadExtras) {
     applyExtrasEverywhere(id, "down");
     showToast("Removed " + (card ? card[3] : "card") + " and its " + hadExtras + (hadExtras === 1 ? " extra" : " extras"), {
@@ -1597,10 +1597,8 @@ function paintCardModal(dropped){
 
   var copies = copiesOf(id), extras = state.extras[id] || 0;
   var count = byId("cmCopyCount"), note = byId("cmCopiesNote"), inc = byId("cmInc"), dec = byId("cmDec"), pile = byId("cmPile");
-  if (count) count.textContent = copies;
   if (note) note.textContent = copies === 0 ? "Not in your binder yet" : extras ? "1 in the binder, " + extras + " extra" : "1 in the binder";
-  if (dec) dec.disabled = readOnly || copies === 0;
-  if (inc) inc.disabled = readOnly || copies > MAX_EXTRAS;
+  syncStepper(dec, inc, count, copies);
   if (pile) {
     var h = "";
     for (var i = Math.min(copies, 6) - 1; i >= 1; i--) h += '<i style="--i:' + i + ';--r:' + jitter(id, i).toFixed(2) + '"></i>';
@@ -2909,10 +2907,23 @@ function pileHtml(c, copies){
 function stepperHtml(id, copies, name){
   var dis = readOnly ? " disabled" : "";
   return '<div class="stepper" role="group" aria-label="Copies of ' + esc(name) + '">' +
-    '<button type="button" data-extra-dec="' + esc(id) + '" aria-label="Remove a copy of ' + esc(name) + '"' + (dis || (copies === 0 ? ' disabled' : '')) + '>\u2212</button>' +
+    '<button type="button" data-extra-dec="' + esc(id) + '" aria-label="Remove a copy of ' + esc(name) + '"' + dis + (copies <= 1 ? ' hidden' : '') + '>\u2212</button>' +
     '<output class="mono" aria-live="polite">' + copies + '</output>' +
     '<button type="button" data-extra-inc="' + esc(id) + '" aria-label="Add a copy of ' + esc(name) + '"' + (dis || (copies > MAX_EXTRAS ? ' disabled' : '')) + '>+</button>' +
   '</div>';
+}
+
+/* The count and buttons of a stepper. A card with one copy has no spare to
+   take away, so its minus button is hidden until it has one. */
+function syncStepper(dec, inc, count, copies){
+  if (count) count.textContent = copies;
+  if (dec) {
+    var hide = copies <= 1;
+    if (hide && !dec.hidden && document.activeElement === dec && inc && !inc.disabled) inc.focus();
+    dec.hidden = hide;
+    dec.disabled = readOnly;
+  }
+  if (inc) inc.disabled = readOnly || copies > MAX_EXTRAS;
 }
 
 /* Sets the number of extra copies, the one place that count changes. */
@@ -2927,8 +2938,8 @@ function setExtras(id, n, silent){
 }
 
 /* The stepper counts copies in total. The first copy is the binder's, so + on
-   a card you do not have yet puts it in the binder, and - on a single copy
-   takes it back out. */
+   a card you do not have yet puts it in the binder. - only ever takes a spare
+   away: the card itself leaves the binder through its own button. */
 function changeCopies(id, delta){
   if (readOnly) return;
   var owned = state.owned.has(id), extras = state.extras[id] || 0;
@@ -2937,10 +2948,6 @@ function changeCopies(id, delta){
     if (extras < MAX_EXTRAS) setExtras(id, extras + 1);
   } else if (extras > 0) {
     setExtras(id, extras - 1);
-  } else if (owned) {
-    applyOwnedToggle(id);
-    var c = CARD_BY_ID[id];
-    showToast("Removed " + (c ? c[3] : "card") + " from your binder", { actionLabel: "Undo", onAction: function(){ applyOwnedToggle(id); } });
   }
 }
 
@@ -3008,7 +3015,7 @@ function stackCardHtml(id){
 function extraEmptyHtml(){
   return state.extras && Object.keys(state.extras).length
     ? '<p class="empty-note">No stacks in that set.</p>'
-    : '<p class="empty-note">No extras yet. Search for a card above and set how many copies you have.</p>';
+    : '<p class="empty-note">No extras yet. Press + on one of your cards above to add a spare copy.</p>';
 }
 
 function renderExtraStacks(){
@@ -3033,41 +3040,63 @@ function extraOwnText(id){
   return copies === 0 ? "Not in your binder" : copies === 1 ? "In your binder" : (copies - 1) + " extra";
 }
 
+/* The cards in the binder, filtered by set and search, newest set first. Spares
+   only exist for cards you hold, so this is the list the + buttons live on. */
+var EXTRA_PAGE = 24;
+function ownedCardsFor(setCode, q){
+  return CARDS.filter(function(c){
+    if (!state.owned.has(c[0])) return false;
+    if (setCode && c[1] !== setCode) return false;
+    return !q || (c[3] + " " + c[0] + " " + c[2] + " " + (SET_LABEL[c[1]] || "")).toLowerCase().indexOf(q) !== -1;
+  }).sort(function(a, b){
+    return ((SET_INDEX[b[1]] || 0) - (SET_INDEX[a[1]] || 0)) || compareBinderOrder(a, b);
+  });
+}
+
+function refreshExtraPickSet(){
+  var sel = byId("extraPickSet");
+  var counts = {};
+  state.owned.forEach(function(id){ var c = CARD_BY_ID[id]; if (c) counts[c[1]] = (counts[c[1]] || 0) + 1; });
+  var html = '<option value="">All sets (' + fmtInt(ownedCount()) + ' cards)</option>';
+  SET_META.forEach(function(s){
+    if (counts[s[0]]) html += '<option value="' + esc(s[0]) + '">' + esc(s[0]) + ' \u00b7 ' + esc(s[1]) + ' (' + counts[s[0]] + ')</option>';
+  });
+  sel.innerHTML = html;
+  if (!counts[ui.extraPickSet]) ui.extraPickSet = "";
+  sel.value = ui.extraPickSet;
+}
+
 function renderExtraResults(){
   var host = byId("extraResults");
   var q = (ui.extraQuery || "").trim().toLowerCase();
-  if (!q) {
-    extraResultIds = [];
-    host.innerHTML = '<p class="empty-note">Type a card name or number, for example \u201crose\u201d or \u201cBS11-032\u201d.</p>';
+  var matches = ownedCardsFor(ui.extraPickSet, q);
+  extraResultIds = matches.map(function(c){ return c[0]; });
+  if (!state.owned.size) {
+    host.innerHTML = '<p class="empty-note">Your binder is empty. Mark the cards you own in the Collection first, and they will show up here.</p>';
     return;
   }
-  var matches = CARDS.filter(function(c){
-    return (c[3] + " " + c[0] + " " + c[2] + " " + (SET_LABEL[c[1]] || "")).toLowerCase().indexOf(q) !== -1;
-  });
-  matches.sort(function(a, b){
-    return (state.owned.has(b[0]) ? 1 : 0) - (state.owned.has(a[0]) ? 1 : 0) || ((SET_INDEX[b[1]] || 0) - (SET_INDEX[a[1]] || 0)) || compareBinderOrder(a, b);
-  });
-  var shown = matches.slice(0, 8);
-  extraResultIds = shown.map(function(c){ return c[0]; });
-  if (!shown.length) { host.innerHTML = '<p class="empty-note">No card matches that. Try part of the name, or the card number.</p>'; return; }
+  if (!matches.length) {
+    host.innerHTML = '<p class="empty-note">None of your cards match that. Try part of the name, or the card number.</p>';
+    return;
+  }
+  var shown = matches.slice(0, ui.extraShow);
   host.innerHTML = shown.map(extraRowHtml).join("") +
-    (matches.length > shown.length ? '<p class="panel-foot">Showing ' + shown.length + ' of ' + fmtInt(matches.length) + '. Keep typing to narrow it down.</p>' : '');
+    (matches.length > shown.length
+      ? '<div class="extra-more"><button type="button" class="iconbtn" data-extra-more>Show ' + Math.min(EXTRA_PAGE, matches.length - shown.length) + ' more</button><span class="panel-foot">Showing ' + shown.length + ' of ' + fmtInt(matches.length) + '</span></div>'
+      : '');
 }
 
 function updateExtraRow(id){
   var row = document.querySelector('.extra-row[data-extra-row="' + cssEsc(id) + '"]');
   if (!row) return;
-  var copies = copiesOf(id);
-  row.querySelector(".stepper output").textContent = copies;
-  var dec = row.querySelector("[data-extra-dec]"), inc = row.querySelector("[data-extra-inc]");
-  if (dec) dec.disabled = readOnly || copies === 0;
-  if (inc) inc.disabled = readOnly || copies > MAX_EXTRAS;
+  syncStepper(row.querySelector("[data-extra-dec]"), row.querySelector("[data-extra-inc]"), row.querySelector(".stepper output"), copiesOf(id));
   row.querySelector(".extra-own").textContent = extraOwnText(id);
 }
 
 function renderExtrasView(){
   renderExtraKpis();
   refreshExtraSetFilter();
+  refreshExtraPickSet();
   ui.extraOrder = extraSorted(extraIdsAll(), ui.extraSort, ui.extraSet);
   renderExtraStacks();
   renderExtraResults();
@@ -3105,9 +3134,7 @@ function refreshExtrasView(id, dir){
   }
   el.querySelector(".stack-open").innerHTML = pileHtml(c, 1 + extras);
   el.querySelector(".stack-extra b").textContent = "+" + extras;
-  el.querySelector(".stepper output").textContent = 1 + extras;
-  var inc = el.querySelector("[data-extra-inc]");
-  if (inc) inc.disabled = readOnly || extras + 1 > MAX_EXTRAS;
+  syncStepper(el.querySelector("[data-extra-dec]"), el.querySelector("[data-extra-inc]"), el.querySelector(".stepper output"), 1 + extras);
   if (dir === "up") bumpPile(el.querySelector(".pile"));
 }
 
@@ -3124,9 +3151,17 @@ function openExtraListModal(){
 }
 
 function onExtrasClick(e){
-  var t = e.target.closest ? e.target.closest("[data-extra-inc],[data-extra-dec],[data-extra-open],[data-extra-peek]") : null;
+  var t = e.target.closest ? e.target.closest("[data-extra-inc],[data-extra-dec],[data-extra-open],[data-extra-peek],[data-extra-more]") : null;
   if (!t) return;
-  if (t.hasAttribute("data-extra-inc")) changeCopies(t.getAttribute("data-extra-inc"), 1);
+  if (t.hasAttribute("data-extra-more")) {
+    var had = byId("extraResults").querySelectorAll(".extra-row").length;
+    ui.extraShow += EXTRA_PAGE;
+    renderExtraResults();
+    var fresh = byId("extraResults").querySelectorAll(".extra-row")[had];
+    var firstBtn = fresh && fresh.querySelector("[data-extra-inc]");
+    if (firstBtn) firstBtn.focus({ preventScroll: true });
+  }
+  else if (t.hasAttribute("data-extra-inc")) changeCopies(t.getAttribute("data-extra-inc"), 1);
   else if (t.hasAttribute("data-extra-dec")) changeCopies(t.getAttribute("data-extra-dec"), -1);
   else if (t.hasAttribute("data-extra-open")) openCardModal(t.getAttribute("data-extra-open"), ui.extraOrder.slice(), t);
   else openCardModal(t.getAttribute("data-extra-peek"), extraResultIds.slice(), t);
@@ -3135,7 +3170,12 @@ function onExtrasClick(e){
 function wireExtrasControls(){
   byId("extrasView").addEventListener("click", onExtrasClick);
   var search = byId("extraSearch");
-  search.addEventListener("input", debounce(function(){ ui.extraQuery = search.value; renderExtraResults(); }, 120));
+  search.addEventListener("input", debounce(function(){ ui.extraQuery = search.value; ui.extraShow = EXTRA_PAGE; renderExtraResults(); }, 120));
+  byId("extraPickSet").addEventListener("change", function(){
+    ui.extraPickSet = this.value;
+    ui.extraShow = EXTRA_PAGE;
+    renderExtraResults();
+  });
   byId("extraSort").addEventListener("change", function(){
     ui.extraSort = this.value;
     savePrefs();
