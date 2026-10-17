@@ -80,7 +80,7 @@ if re.search(r'</script', app_js, re.IGNORECASE):
 # initial_state.json so syncing it is a file swap, not a code edit.
 with open(BASE + "initial_state.json", "r", encoding="utf-8") as f:
     _state = json.load(f)
-for _key, _default in (("owned", []), ("spending", []), ("wishlist", []), ("budget", 0)):
+for _key, _default in (("owned", []), ("spending", []), ("wishlist", []), ("budget", 0), ("extras", {})):
     _state.setdefault(_key, _default)
 INITIAL_STATE_JSON = json.dumps(_state, separators=(",", ":"))
 

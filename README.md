@@ -9,8 +9,8 @@ only in each browser.
 
 ## What the page does
 
-Four pages, addressed by a bare hash (`#overview`, `#collection`,
-`#wishlist`, `#spending`) so a shared link can open straight to one:
+Five pages, addressed by a bare hash (`#overview`, `#collection`,
+`#wishlist`, `#extras`, `#spending`) so a shared link can open straight to one:
 
 - **Overview** — progress ring and next goal, per-set progress (tap a set to
   open it), breakdown by rarity / color / type, the sets closest to
@@ -25,6 +25,16 @@ Four pages, addressed by a bare hash (`#overview`, `#collection`,
   rarity / type filters, owned / missing view. Each card has a detail view
   (the magnifier on a tile).
 - **Wishlist** — one flat list of wanted cards in release order.
+- **Extras** — spare copies. Search for a card and set how many copies you hold
+  in total (one stays in the binder, the rest are extras), or use the stepper
+  in a card's detail view. Spares are drawn as a physical pile: each extra adds
+  a slightly crooked card edge behind the top card, so the pile gets thicker the
+  more you hold, with a gold `×N` count. The same pile shows behind the large
+  card in the detail view, as card edges and a count chip on binder pockets and
+  grid tiles, and in an Extras panel on the Overview. The page also has totals,
+  a stacks grid (sort by most copies / newest set / set order / name, filter by
+  set) and a "Copy list" for trading. Taking a card out of the binder takes its
+  spares with it, with an Undo.
 - **Spending** — log a purchase (date, amount, series, type, note), then see
   totals, a time-accurate running-total chart, monthly bars, a by-type donut,
   by-series bars with cost per card, a monthly budget, and a history that can
@@ -36,7 +46,7 @@ On a phone the page navigation moves to a bottom tab bar.
 
 - `app.js` — all runtime JS, in sections: data and state, rendering (tiles,
   binder pages, sets), save/publish, sound, interactions, card detail,
-  overview, spending, routing and wiring. Plain ES5-style, one IIFE.
+  overview, extras, spending, routing and wiring. Plain ES5-style, one IIFE.
 - `style.css` — all styles. White-and-gold design tokens are at the top; gold
   is the single accent and green is reserved for "owned".
 - `shell.html` — the static HTML shell. Most views are filled in by JS, but
@@ -49,7 +59,7 @@ On a phone the page navigation moves to a bottom tab bar.
   (104×145px, ~5–7KB each) — there is no external image loading. This file
   is ~15.6MB and is the bulk of the built page's size.
 - `initial_state.json` — the collection state baked into the page on first
-  load: `{ owned, spending, wishlist, budget }`. See "Syncing state" below.
+  load: `{ owned, spending, wishlist, budget, extras }`. See "Syncing state" below.
 - `build.py` — assembles all of the above into the single deployable file,
   `braverse-binder.html`.
 - `verify_roundtrip.py` — sanity-checks that build.
@@ -71,6 +81,10 @@ as good — see "The self-publishing quine" below for why this matters.
   `kind` is one of `box`, `packs`, `deck`, `singles`, `gear`, `other`.
   Older entries without `series` get it read back out of the note on load.
 - `budget` — monthly budget in dollars, `0` for none
+- `extras` — object of `{ cardId: spareCount }`, counts of 1 to 99, for spare
+  copies beyond the one in the binder. A card with spares is always owned
+  (loading and restoring add it to `owned` if needed). Total copies of a card
+  are `1 + extras[id]`.
 - `savedAt` — when the page last saved (ms since 1970). In the artifact, a
   browser's own snapshot is only used on load if it is newer than this, so a
   stale snapshot never undoes a change made on another device. When you
@@ -78,7 +92,7 @@ as good — see "The self-publishing quine" below for why this matters.
   to the current time so it beats any older snapshots. On a plain web host the
   browser's snapshot always wins and the baked state only seeds a first visit.
 
-Per-viewer preferences (layout, chart range, sort, sound) are not part of the
+Per-viewer preferences (layout, chart range, sort, extras sort, sound) are not part of the
 shared state; they live in each browser's localStorage.
 
 ## The self-publishing quine (important — read before editing `app.js`)

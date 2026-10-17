@@ -129,7 +129,8 @@ function readSnapshot(){
     owned: readLocalJson("crb_owned_backup"),
     spending: readLocalJson("crb_spending_backup"),
     wishlist: readLocalJson("crb_wishlist_backup"),
-    budget: readLocalJson("crb_budget_backup")
+    budget: readLocalJson("crb_budget_backup"),
+    extras: readLocalJson("crb_extras_backup")
   };
   if (!Array.isArray(snap.owned) || !Array.isArray(snap.spending) || !Array.isArray(snap.wishlist)) return null;
   snap.budget = Number(snap.budget) > 0 ? Number(snap.budget) : 0;
@@ -163,6 +164,22 @@ function normalizeSpendEntry(e){
   return { id: id, date: date, amount: amount, note: note, series: series, kind: kind };
 }
 
+/* Extra copies: how many spares of a card you hold beyond the one that sits in
+   the binder. Stored as { cardId: count } with counts of 1 or more. Spares
+   only exist for a card you own, so a card with spares is always owned. */
+var MAX_EXTRAS = 99;
+function normalizeExtras(raw, owned){
+  var out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  Object.keys(raw).forEach(function(id){
+    var n = Math.floor(Number(raw[id]));
+    if (!(n >= 1) || !CARD_BY_ID[id]) return;
+    out[id] = Math.min(n, MAX_EXTRAS);
+    if (owned) owned.add(id);
+  });
+  return out;
+}
+
 function loadInitialState(){
   var inArtifact = !!(window.claude && typeof window.claude.use === "function");
   var snap = readSnapshot();
@@ -176,8 +193,11 @@ function loadInitialState(){
   });
   spending.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   var budget = Number(src.budget);
+  var owned = new Set((Array.isArray(src.owned) ? src.owned : []).filter(function(id){ return typeof id === "string"; }));
+  var extras = normalizeExtras(src.extras, owned);
   return {
-    owned: new Set((Array.isArray(src.owned) ? src.owned : []).filter(function(id){ return typeof id === "string"; })),
+    owned: owned,
+    extras: extras,
     wishlist: new Set((Array.isArray(src.wishlist) ? src.wishlist : []).filter(function(id){ return typeof id === "string"; })),
     spending: spending,
     budget: budget > 0 ? Math.round(budget * 100) / 100 : 0,
@@ -186,12 +206,13 @@ function loadInitialState(){
 }
 
 /* Filled in by init() once the page (and, in the viewer, its runtime) is ready. */
-var state = { owned: new Set(), spending: [], wishlist: new Set(), budget: 0 };
+var state = { owned: new Set(), extras: {}, spending: [], wishlist: new Set(), budget: 0 };
 var filters = { q: "", color: "", rarity: "", type: "", view: "all", sort: "binder" };
 var ui = {
   expanded: new Set(), tab: "overview", layout: "binder", binderPage: {},
   breakdown: "rarity", range: "all",
-  histSeries: "", histKind: "", histSort: "new", editSpendId: null
+  histSeries: "", histKind: "", histSort: "new", editSpendId: null,
+  extraSort: "most", extraSet: "", extraQuery: "", extraOrder: []
 };
 var pendingScrollY = null;
 
@@ -205,10 +226,11 @@ var PREFS_KEY = "crb_prefs";
   if (p.range === "all" || p.range === "12" || p.range === "6" || p.range === "3") ui.range = p.range;
   if (p.breakdown === "rarity" || p.breakdown === "color" || p.breakdown === "type") ui.breakdown = p.breakdown;
   if (p.sort === "binder" || p.sort === "rarity" || p.sort === "name" || p.sort === "color") filters.sort = p.sort;
+  if (p.extraSort === "most" || p.extraSort === "new" || p.extraSort === "set" || p.extraSort === "name") ui.extraSort = p.extraSort;
 })();
 function savePrefs(){
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ layout: ui.layout, range: ui.range, breakdown: ui.breakdown, sort: filters.sort }));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ layout: ui.layout, range: ui.range, breakdown: ui.breakdown, sort: filters.sort, extraSort: ui.extraSort }));
   } catch(e){}
 }
 
@@ -361,6 +383,7 @@ function artHtml(c){
 function tileHtml(c, variant){
   var owned = state.owned.has(c[0]);
   var wished = state.wishlist.has(c[0]);
+  var extrasN = state.extras[c[0]] || 0;
   var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
   var colorHex = COLOR_HEX[c[6]] || "var(--c-colorless)";
   var wishLabel = wished ? "Remove from wishlist" : "Add to wishlist";
@@ -388,14 +411,34 @@ function tileHtml(c, variant){
       '</div>';
   }
   return (
-    '<div class="card-tile-wrap' + (pocket ? ' pocket-wrap' : '') + '">' +
+    '<div class="card-tile-wrap' + (pocket ? ' pocket-wrap' : '') + (extrasN ? ' has-stack' : '') + '">' +
       '<button type="button" class="card-tile' + (pocket ? ' pocket' : '') + '" data-id="' + esc(c[0]) + '" data-owned="' + owned + '" data-tier="' + esc(rInfo.tier) + '" title="' + esc(c[3]) + ' (' + esc(c[0]) + ')"' + dis + '>' +
         inner +
       '</button>' +
       '<button type="button" class="tile-wish" data-wish-id="' + esc(c[0]) + '" data-wished="' + wished + '" aria-pressed="' + wished + '" aria-label="' + esc(wishLabel) + '" title="' + esc(wishLabel) + '"' + dis + '>' + WISH_SVG + '</button>' +
       '<button type="button" class="tile-zoom" data-zoom-id="' + esc(c[0]) + '" aria-label="Card details: ' + esc(c[3]) + '" title="Card details">' + ZOOM_SVG + '</button>' +
+      stackPeekHtml(extrasN) +
     '</div>'
   );
+}
+
+/* A card with spares shows the edges of the copies behind it and a count of
+   how many you hold in all, so a stack reads at a glance in the binder. */
+function stackPeekHtml(extras){
+  if (!(extras > 0)) return '';
+  var layers = Math.min(extras, 3), h = '<span class="stack-peek" aria-hidden="true">';
+  for (var i = layers; i >= 1; i--) h += '<i style="--i:' + i + '"></i>';
+  return h + '</span><span class="stack-count mono" title="' + (extras + 1) + ' copies, ' + extras + ' extra">\u00d7' + (extras + 1) + '</span>';
+}
+
+function paintTileStacks(id){
+  var extras = state.extras[id] || 0, html = stackPeekHtml(extras);
+  document.querySelectorAll('.card-tile[data-id="' + cssEsc(id) + '"]').forEach(function(tile){
+    var wrap = tile.parentNode;
+    wrap.querySelectorAll(".stack-peek, .stack-count").forEach(function(n){ n.parentNode.removeChild(n); });
+    if (html) wrap.insertAdjacentHTML("beforeend", html);
+    wrap.classList.toggle("has-stack", extras > 0);
+  });
 }
 
 /* ===== Binder pages ===== */
@@ -932,7 +975,7 @@ function disableWriteControls(){
   /* .set-actions buttons are view-only filters now (Show owned/Show missing),
      not edits, so a read-only viewer keeps using them. */
   var sel = ".card-tile, .tile-wish, #spendForm button, #spendForm input, #spendForm select, " +
-            ".spend-row-del, .spend-row-edit, #importBtn, #budgetBody input, #budgetBody button, .cm-own, .cm-wish";
+            ".spend-row-del, .spend-row-edit, #importBtn, #budgetBody input, #budgetBody button, .cm-own, .cm-wish, .stepper button";
   document.querySelectorAll(sel).forEach(function(el){ el.disabled = true; });
 }
 
@@ -951,8 +994,8 @@ function scheduleSave(){
   saveTimer = setTimeout(doSave, SAVE_IDLE_MS);
 }
 
-function buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt){
-  var stateJson = JSON.stringify({ owned: ownedArr, spending: spendingArr, wishlist: wishlistArr, budget: budget, savedAt: savedAt });
+function buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt, extras){
+  var stateJson = JSON.stringify({ owned: ownedArr, spending: spendingArr, wishlist: wishlistArr, budget: budget, extras: extras, savedAt: savedAt });
   return PART_A + stateJson + PART_B1 + SELF_SRC + PART_B2;
 }
 
@@ -961,16 +1004,18 @@ function doSave(){
   var spendingArr = state.spending;
   var wishlistArr = Array.from(state.wishlist);
   var budget = state.budget || 0;
+  var extras = state.extras;
   var savedAt = Date.now();
   try { localStorage.setItem("crb_saved_at", String(savedAt)); } catch(e){}
   try { localStorage.setItem("crb_owned_backup", JSON.stringify(ownedArr)); } catch(e){}
   try { localStorage.setItem("crb_spending_backup", JSON.stringify(spendingArr)); } catch(e){}
   try { localStorage.setItem("crb_wishlist_backup", JSON.stringify(wishlistArr)); } catch(e){}
   try { localStorage.setItem("crb_budget_backup", JSON.stringify(budget)); } catch(e){}
+  try { localStorage.setItem("crb_extras_backup", JSON.stringify(extras)); } catch(e){}
   ensureArtifact().then(function(ns){
     if (!ns) { setSyncState("local"); return; }
     stashUiState();
-    var html = buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt);
+    var html = buildDocument(ownedArr, spendingArr, wishlistArr, budget, savedAt, extras);
     ns.publish(html).then(function(){
       /* success reloads this view */
     }).catch(function(err){
@@ -1249,9 +1294,11 @@ function setOwnershipView(view){
    everywhere without re-rendering whole pages. */
 function applyOwnedToggle(id){
   var before = milestoneSnapshot();
+  var hadExtras = state.extras[id] || 0;
   toggleCard(id);
   var nowOwned = state.owned.has(id);
   playPop(nowOwned);
+  if (!nowOwned && hadExtras) delete state.extras[id]; /* spares go with the card that holds them */
   document.querySelectorAll('.card-tile[data-id="' + cssEsc(id) + '"]').forEach(function(el){
     el.setAttribute("data-owned", nowOwned);
   });
@@ -1261,6 +1308,14 @@ function applyOwnedToggle(id){
   renderTopProgress();
   refreshBinderCounts();
   if (nowOwned) announceMilestones(before);
+  if (ui.tab === "extras" && !hadExtras) { updateExtraRow(id); renderExtraKpis(); }
+  if (!nowOwned && hadExtras) {
+    applyExtrasEverywhere(id, "down");
+    showToast("Removed " + (card ? card[3] : "card") + " and its " + hadExtras + (hadExtras === 1 ? " extra" : " extras"), {
+      actionLabel: "Undo",
+      onAction: function(){ applyOwnedToggle(id); setExtras(id, hadExtras, true); }
+    });
+  }
   paintCardModal();
   scheduleSave();
   return nowOwned;
@@ -1460,6 +1515,7 @@ function openCardModal(id, ids, trigger){
 function closeCardModal(){
   byId("cardOverlay").hidden = true;
   document.body.classList.remove("modal-open");
+  if (ui.tab === "overview") renderOverview(); /* anything changed in the detail view shows up behind it */
   var t = cardModal.trigger;
   cardModal.trigger = null;
   if (t && t.focus && document.body.contains(t)) { try { t.focus({ preventScroll: true }); } catch(e){} }
@@ -1489,7 +1545,7 @@ function renderCardModal(){
     '<button type="button" class="modal-close cm-close" id="cmClose" data-cm="close" aria-label="Close card details">&times;</button>' +
     '<div class="cm-stage">' +
       '<button type="button" class="cm-nav" id="cmPrev" data-cm="prev" aria-label="Previous card"' + (cardModal.idx <= 0 ? ' disabled' : '') + (multi ? '' : ' hidden') + '>' + CHEV_L_SVG + '</button>' +
-      '<div class="cm-art" id="cmArt" data-tier="' + esc(rInfo.tier) + '" data-owned="false">' + art + '</div>' +
+      '<div class="cm-artwrap"><span class="cm-pile" id="cmPile" aria-hidden="true"></span><div class="cm-art" id="cmArt" data-tier="' + esc(rInfo.tier) + '" data-owned="false">' + art + '</div></div>' +
       '<button type="button" class="cm-nav" id="cmNext" data-cm="next" aria-label="Next card"' + (cardModal.idx >= cardModal.ids.length - 1 ? ' disabled' : '') + (multi ? '' : ' hidden') + '>' + CHEV_R_SVG + '</button>' +
     '</div>' +
     '<div class="cm-info">' +
@@ -1506,6 +1562,14 @@ function renderCardModal(){
         '<button type="button" class="iconbtn cm-own" id="cmOwn" data-cm="own"></button>' +
         '<button type="button" class="iconbtn cm-wish" id="cmWish" data-cm="wish"></button>' +
       '</div>' +
+      '<div class="cm-copies">' +
+        '<div class="cm-copies-head"><span class="cm-copies-label">Copies</span><span class="cm-copies-note" id="cmCopiesNote"></span></div>' +
+        '<div class="stepper big" role="group" aria-label="Copies of ' + esc(c[3]) + '">' +
+          '<button type="button" id="cmDec" data-cm="copy-dec" aria-label="Remove a copy">\u2212</button>' +
+          '<output class="mono" id="cmCopyCount" aria-live="polite">0</output>' +
+          '<button type="button" id="cmInc" data-cm="copy-inc" aria-label="Add a copy">+</button>' +
+        '</div>' +
+      '</div>' +
       '<button type="button" class="linkbtn cm-goto" data-cm="goto">Show in the binder</button>' +
       '<p class="cm-pos mono">' + (cardModal.idx + 1) + ' of ' + cardModal.ids.length + '</p>' +
     '</div>';
@@ -1515,7 +1579,7 @@ function renderCardModal(){
 
 /* Updates only the ownership and wishlist buttons, so toggling a card from
    inside the detail view doesn't rebuild it and lose keyboard focus. */
-function paintCardModal(){
+function paintCardModal(dropped){
   if (!cardModalOpen()) return;
   var id = cardModal.ids[cardModal.idx];
   var own = byId("cmOwn"), wish = byId("cmWish"), art = byId("cmArt");
@@ -1530,6 +1594,19 @@ function paintCardModal(){
   wish.innerHTML = WISH_SVG + '<span>' + (wished ? "On your wishlist" : "Add to wishlist") + '</span>';
   own.disabled = readOnly;
   wish.disabled = readOnly;
+
+  var copies = copiesOf(id), extras = state.extras[id] || 0;
+  var count = byId("cmCopyCount"), note = byId("cmCopiesNote"), inc = byId("cmInc"), dec = byId("cmDec"), pile = byId("cmPile");
+  if (count) count.textContent = copies;
+  if (note) note.textContent = copies === 0 ? "Not in your binder yet" : extras ? "1 in the binder, " + extras + " extra" : "1 in the binder";
+  if (dec) dec.disabled = readOnly || copies === 0;
+  if (inc) inc.disabled = readOnly || copies > MAX_EXTRAS;
+  if (pile) {
+    var h = "";
+    for (var i = Math.min(copies, 6) - 1; i >= 1; i--) h += '<i style="--i:' + i + ';--r:' + jitter(id, i).toFixed(2) + '"></i>';
+    pile.innerHTML = h;
+    if (dropped === "up" && art) bumpPile(art.parentNode);
+  }
 }
 
 function onCardModalClick(e){
@@ -1543,6 +1620,8 @@ function onCardModalClick(e){
   else if (act === "next") stepCardModal(1);
   else if (act === "own") applyOwnedToggle(id);
   else if (act === "wish") applyWishToggle(id);
+  else if (act === "copy-inc") changeCopies(id, 1);
+  else if (act === "copy-dec") changeCopies(id, -1);
   else if (act === "goto") { closeCardModal(); jumpToCard(id); }
 }
 
@@ -1787,6 +1866,23 @@ function ovShelfHtml(){
   return html;
 }
 
+var extraShelfIds = [];
+function ovExtrasHtml(){
+  var ids = extraSorted(extraIdsAll(), "most", "");
+  extraShelfIds = ids;
+  if (!ids.length) return '<p class="empty-note">Spare copies you add will stack up here, one pile per card.</p>';
+  var html =
+    '<div class="ov-extras-top">' +
+      '<div><span class="ov-stat-val">' + fmtInt(extraTotal()) + '</span><span class="ov-stat-lbl">Extra cards</span></div>' +
+      '<div><span class="ov-stat-val">' + fmtInt(ids.length) + '</span><span class="ov-stat-lbl">Cards with spares</span></div>' +
+    '</div><div class="ov-piles">';
+  ids.slice(0, 4).forEach(function(id){
+    var c = CARD_BY_ID[id];
+    html += '<button type="button" class="ov-pile" data-xshelf="' + esc(id) + '" title="' + esc(c[3]) + ', ' + (1 + state.extras[id]) + ' copies">' + pileHtml(c, 1 + state.extras[id]) + '<span class="ov-pile-name">' + esc(c[3]) + '</span></button>';
+  });
+  return html + '</div>';
+}
+
 function ovMilestonesHtml(){
   var html = '<div class="medals">';
   milestoneList().forEach(function(x){
@@ -1859,6 +1955,7 @@ function renderOverview(){
         '<button type="button" data-bd="type" aria-pressed="false">Type</button>' +
       '</div><div id="breakdownBody" class="bd-list"></div>') +
     ovPanel("", "Foil shelf", "Your ultra and secret cards, rarest first.", ovShelfHtml()) +
+    ovPanel("", "Extras", "Spare copies, stacked like the real thing.", ovExtrasHtml(), '<button type="button" class="linkbtn" data-goto="extras">Open extras</button>') +
   '</div>';
   html += '</div>';
   html += '<div class="ov-grid ov-grid-even">' +
@@ -1870,12 +1967,13 @@ function renderOverview(){
 }
 
 function onOverviewClick(e){
-  var t = e.target.closest ? e.target.closest("[data-jump],[data-jump-missing],[data-bd],[data-shelf],[data-goto]") : null;
+  var t = e.target.closest ? e.target.closest("[data-jump],[data-jump-missing],[data-bd],[data-shelf],[data-xshelf],[data-goto]") : null;
   if (!t) return;
   if (t.hasAttribute("data-jump")) jumpToSet(t.getAttribute("data-jump"));
   else if (t.hasAttribute("data-jump-missing")) jumpToSet(t.getAttribute("data-jump-missing"), { missing: true });
   else if (t.hasAttribute("data-bd")) { ui.breakdown = t.getAttribute("data-bd"); savePrefs(); renderBreakdown(); }
   else if (t.hasAttribute("data-shelf")) openCardModal(t.getAttribute("data-shelf"), shelfIds, t);
+  else if (t.hasAttribute("data-xshelf")) openCardModal(t.getAttribute("data-xshelf"), extraShelfIds, t);
   else if (t.hasAttribute("data-goto")) setTab(t.getAttribute("data-goto"));
 }
 
@@ -2761,13 +2859,304 @@ function wireSpendingControls(){
 
 
 
+/* ===== Extras: spare copies, stacked like real cards =====
+   A card in the binder counts once toward progress. Extras are the copies you
+   hold on top of that. They are edited with a copies stepper (total copies, so
+   "3" means one in the binder and two extra) in the detail view and here, and
+   drawn as a pile: each extra copy adds a card edge behind the top card. */
+function copiesOf(id){ return state.owned.has(id) ? 1 + (state.extras[id] || 0) : 0; }
+
+function extraTotal(){
+  var t = 0;
+  Object.keys(state.extras).forEach(function(id){ t += state.extras[id]; });
+  return t;
+}
+
+function extraIdsAll(){
+  return Object.keys(state.extras).filter(function(id){ return state.extras[id] > 0 && CARD_BY_ID[id] && state.owned.has(id); });
+}
+
+function updateExtrasBadge(){
+  var out = byId("extrasCount");
+  if (out) out.textContent = extraTotal();
+}
+
+/* A few degrees of repeatable wobble per card and layer, so a pile looks like
+   it was stacked by hand and every pile is not a copy of the last. */
+function jitter(id, i){
+  var h = 0, str = id + ":" + i;
+  for (var k = 0; k < str.length; k++) h = (h * 31 + str.charCodeAt(k)) | 0;
+  return ((Math.abs(h) % 1000) / 1000 * 2 - 1) * 1.7;
+}
+
+function bumpPile(el){
+  if (!el) return;
+  el.classList.remove("drop");
+  void el.offsetWidth;
+  el.classList.add("drop");
+}
+
+function pileHtml(c, copies){
+  var n = Math.min(copies, 9) - 1;
+  var h = '<span class="pile" style="--n:' + n + '" data-copies="' + copies + '">';
+  for (var i = n; i >= 1; i--) h += '<span class="pile-card back" style="--i:' + i + ';--r:' + jitter(c[0], i).toFixed(2) + '"></span>';
+  h += '<span class="pile-card top">' + (c[8]
+    ? '<img src="data:image/webp;base64,' + c[8] + '" alt="" width="80" height="111">'
+    : '<span class="pile-empty">' + esc(c[3].slice(0, 1)) + '</span>') + '</span>';
+  return h + '<span class="pile-count mono">\u00d7' + copies + '</span></span>';
+}
+
+function stepperHtml(id, copies, name){
+  var dis = readOnly ? " disabled" : "";
+  return '<div class="stepper" role="group" aria-label="Copies of ' + esc(name) + '">' +
+    '<button type="button" data-extra-dec="' + esc(id) + '" aria-label="Remove a copy of ' + esc(name) + '"' + (dis || (copies === 0 ? ' disabled' : '')) + '>\u2212</button>' +
+    '<output class="mono" aria-live="polite">' + copies + '</output>' +
+    '<button type="button" data-extra-inc="' + esc(id) + '" aria-label="Add a copy of ' + esc(name) + '"' + (dis || (copies > MAX_EXTRAS ? ' disabled' : '')) + '>+</button>' +
+  '</div>';
+}
+
+/* Sets the number of extra copies, the one place that count changes. */
+function setExtras(id, n, silent){
+  n = Math.max(0, Math.min(MAX_EXTRAS, Math.floor(Number(n) || 0)));
+  var prev = state.extras[id] || 0;
+  if (n === prev) return;
+  if (n > 0) state.extras[id] = n; else delete state.extras[id];
+  if (!silent) playPop(n > prev);
+  applyExtrasEverywhere(id, n > prev ? "up" : "down");
+  scheduleSave();
+}
+
+/* The stepper counts copies in total. The first copy is the binder's, so + on
+   a card you do not have yet puts it in the binder, and - on a single copy
+   takes it back out. */
+function changeCopies(id, delta){
+  if (readOnly) return;
+  var owned = state.owned.has(id), extras = state.extras[id] || 0;
+  if (delta > 0) {
+    if (!owned) { applyOwnedToggle(id); return; }
+    if (extras < MAX_EXTRAS) setExtras(id, extras + 1);
+  } else if (extras > 0) {
+    setExtras(id, extras - 1);
+  } else if (owned) {
+    applyOwnedToggle(id);
+    var c = CARD_BY_ID[id];
+    showToast("Removed " + (c ? c[3] : "card") + " from your binder", { actionLabel: "Undo", onAction: function(){ applyOwnedToggle(id); } });
+  }
+}
+
+/* Everything that shows a card's count is refreshed from here. */
+function applyExtrasEverywhere(id, dir){
+  paintTileStacks(id);
+  paintCardModal(dir);
+  updateExtrasBadge();
+  if (ui.tab === "extras") refreshExtrasView(id, dir);
+}
+
+function extraSorted(ids, sort, setCode){
+  var list = ids.map(function(id){ return CARD_BY_ID[id]; });
+  if (setCode) list = list.filter(function(c){ return c[1] === setCode; });
+  list.sort(function(a, b){
+    if (sort === "name") return a[3].localeCompare(b[3]) || compareReleaseOrder(a, b);
+    if (sort === "new") return ((SET_INDEX[b[1]] || 0) - (SET_INDEX[a[1]] || 0)) || compareBinderOrder(a, b);
+    if (sort === "set") return compareReleaseOrder(a, b);
+    return ((state.extras[b[0]] || 0) - (state.extras[a[0]] || 0)) || compareReleaseOrder(a, b);
+  });
+  return list.map(function(c){ return c[0]; });
+}
+
+function renderExtraKpis(){
+  var ids = extraIdsAll(), total = extraTotal(), sets = {}, top = null;
+  ids.forEach(function(id){
+    sets[CARD_BY_ID[id][1]] = true;
+    if (!top || state.extras[id] > state.extras[top]) top = id;
+  });
+  var tiles = [
+    { label: "Extra cards", value: fmtInt(total), sub: total ? "On top of the " + fmtInt(ownedCount()) + " in the binder" : "No spares yet" },
+    { label: "Cards with spares", value: fmtInt(ids.length), sub: ids.length ? "Each one has its own pile" : "Add some below" },
+    { label: "Biggest stack", times: !!top, value: top ? String(1 + state.extras[top]) : "\u2014", sub: top ? CARD_BY_ID[top][3] : "Nothing stacked yet" },
+    { label: "Sets with spares", value: fmtInt(Object.keys(sets).length), sub: Object.keys(sets).length ? "Out of " + SET_META.length + " sets" : "None yet" }
+  ];
+  byId("extraKpis").innerHTML = tiles.map(function(t){
+    return '<div class="kpi"><span class="kpi-label">' + esc(t.label) + '</span><span class="kpi-value">' + (t.times ? '<span class="times">×</span>' : "") + esc(t.value) + '</span><span class="kpi-sub">' + esc(t.sub) + '</span></div>';
+  }).join("");
+}
+
+function refreshExtraSetFilter(){
+  var sel = byId("extraSet");
+  var present = {};
+  extraIdsAll().forEach(function(id){ present[CARD_BY_ID[id][1]] = true; });
+  var html = '<option value="">All sets</option>';
+  SET_META.forEach(function(s){ if (present[s[0]]) html += '<option value="' + esc(s[0]) + '">' + esc(s[0]) + ' \u00b7 ' + esc(s[1]) + '</option>'; });
+  sel.innerHTML = html;
+  if (!present[ui.extraSet]) ui.extraSet = "";
+  sel.value = ui.extraSet;
+  byId("extraSort").value = ui.extraSort;
+}
+
+function stackCardHtml(id){
+  var c = CARD_BY_ID[id], extras = state.extras[id] || 0, copies = 1 + extras;
+  var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
+  return '<div class="stack-card" data-extra-id="' + esc(id) + '">' +
+    '<button type="button" class="stack-open" data-extra-open="' + esc(id) + '" aria-label="' + esc(c[3]) + ', ' + copies + ' copies. Open details">' + pileHtml(c, copies) + '</button>' +
+    '<div class="stack-meta"><div class="stack-name">' + esc(c[3]) + '</div>' +
+      '<div class="stack-sub"><span class="mono">' + esc(id) + '</span><span class="rarity-pill" data-tier="' + esc(rInfo.tier) + '" title="' + esc(rInfo.name) + '">' + esc(c[4]) + '</span></div>' +
+      '<div class="stack-extra"><b class="mono">+' + extras + '</b> extra</div></div>' +
+    stepperHtml(id, copies, c[3]) +
+  '</div>';
+}
+
+function extraEmptyHtml(){
+  return state.extras && Object.keys(state.extras).length
+    ? '<p class="empty-note">No stacks in that set.</p>'
+    : '<p class="empty-note">No extras yet. Search for a card above and set how many copies you have.</p>';
+}
+
+function renderExtraStacks(){
+  var host = byId("extraStacks");
+  host.innerHTML = ui.extraOrder.length ? ui.extraOrder.map(stackCardHtml).join("") : extraEmptyHtml();
+}
+
+var extraResultIds = [];
+function extraRowHtml(c){
+  var id = c[0], copies = copiesOf(id);
+  var rInfo = RARITY_INFO[c[4]] || { name: c[4], tier: "low" };
+  return '<div class="extra-row" data-extra-row="' + esc(id) + '">' +
+    '<button type="button" class="extra-thumb" data-extra-peek="' + esc(id) + '" aria-label="Open ' + esc(c[3]) + '">' + (c[8] ? '<img src="data:image/webp;base64,' + c[8] + '" alt="" width="80" height="111">' : '') + '</button>' +
+    '<div class="extra-info"><div class="extra-name">' + esc(c[3]) + '</div>' +
+      '<div class="extra-sub"><span class="mono">' + esc(id) + '</span><span class="rarity-pill" data-tier="' + esc(rInfo.tier) + '">' + esc(c[4]) + '</span><span class="extra-own">' + extraOwnText(id) + '</span></div></div>' +
+    stepperHtml(id, copies, c[3]) +
+  '</div>';
+}
+
+function extraOwnText(id){
+  var copies = copiesOf(id);
+  return copies === 0 ? "Not in your binder" : copies === 1 ? "In your binder" : (copies - 1) + " extra";
+}
+
+function renderExtraResults(){
+  var host = byId("extraResults");
+  var q = (ui.extraQuery || "").trim().toLowerCase();
+  if (!q) {
+    extraResultIds = [];
+    host.innerHTML = '<p class="empty-note">Type a card name or number, for example \u201crose\u201d or \u201cBS11-032\u201d.</p>';
+    return;
+  }
+  var matches = CARDS.filter(function(c){
+    return (c[3] + " " + c[0] + " " + c[2] + " " + (SET_LABEL[c[1]] || "")).toLowerCase().indexOf(q) !== -1;
+  });
+  matches.sort(function(a, b){
+    return (state.owned.has(b[0]) ? 1 : 0) - (state.owned.has(a[0]) ? 1 : 0) || ((SET_INDEX[b[1]] || 0) - (SET_INDEX[a[1]] || 0)) || compareBinderOrder(a, b);
+  });
+  var shown = matches.slice(0, 8);
+  extraResultIds = shown.map(function(c){ return c[0]; });
+  if (!shown.length) { host.innerHTML = '<p class="empty-note">No card matches that. Try part of the name, or the card number.</p>'; return; }
+  host.innerHTML = shown.map(extraRowHtml).join("") +
+    (matches.length > shown.length ? '<p class="panel-foot">Showing ' + shown.length + ' of ' + fmtInt(matches.length) + '. Keep typing to narrow it down.</p>' : '');
+}
+
+function updateExtraRow(id){
+  var row = document.querySelector('.extra-row[data-extra-row="' + cssEsc(id) + '"]');
+  if (!row) return;
+  var copies = copiesOf(id);
+  row.querySelector(".stepper output").textContent = copies;
+  var dec = row.querySelector("[data-extra-dec]"), inc = row.querySelector("[data-extra-inc]");
+  if (dec) dec.disabled = readOnly || copies === 0;
+  if (inc) inc.disabled = readOnly || copies > MAX_EXTRAS;
+  row.querySelector(".extra-own").textContent = extraOwnText(id);
+}
+
+function renderExtrasView(){
+  renderExtraKpis();
+  refreshExtraSetFilter();
+  ui.extraOrder = extraSorted(extraIdsAll(), ui.extraSort, ui.extraSet);
+  renderExtraStacks();
+  renderExtraResults();
+}
+
+/* A change to one card updates just that card's stack, so the page does not
+   jump or reshuffle under the person's finger while they press + or -. */
+function refreshExtrasView(id, dir){
+  renderExtraKpis();
+  updateExtraRow(id);
+  var host = byId("extraStacks");
+  var el = host.querySelector('.stack-card[data-extra-id="' + cssEsc(id) + '"]');
+  var extras = state.extras[id] || 0;
+  if (!extras) {
+    ui.extraOrder = ui.extraOrder.filter(function(x){ return x !== id; });
+    refreshExtraSetFilter();
+    if (el) {
+      el.classList.add("leaving");
+      setTimeout(function(){
+        if (el.parentNode) el.parentNode.removeChild(el);
+        if (!host.querySelector(".stack-card")) renderExtraStacks();
+      }, 240);
+    }
+    return;
+  }
+  var c = CARD_BY_ID[id];
+  if (!el) {
+    if (ui.extraSet && c[1] !== ui.extraSet) return;
+    ui.extraOrder.unshift(id);
+    if (!host.querySelector(".stack-card")) host.innerHTML = "";
+    host.insertAdjacentHTML("afterbegin", stackCardHtml(id));
+    refreshExtraSetFilter();
+    if (dir === "up") bumpPile(host.querySelector(".stack-card .pile"));
+    return;
+  }
+  el.querySelector(".stack-open").innerHTML = pileHtml(c, 1 + extras);
+  el.querySelector(".stack-extra b").textContent = "+" + extras;
+  el.querySelector(".stepper output").textContent = 1 + extras;
+  var inc = el.querySelector("[data-extra-inc]");
+  if (inc) inc.disabled = readOnly || extras + 1 > MAX_EXTRAS;
+  if (dir === "up") bumpPile(el.querySelector(".pile"));
+}
+
+function openExtraListModal(){
+  var ids = extraSorted(extraIdsAll(), "set", "");
+  if (!ids.length) { showToast("No extras to list yet."); return; }
+  var lines = ids.map(function(id){ return state.extras[id] + "x " + CARD_BY_ID[id][3] + " (" + id + ")"; });
+  openTextModal({
+    title: "Extras list",
+    sub: "Copy this list to share what you have spare, for trading or for a friend.",
+    text: "Extra cards: " + fmtInt(extraTotal()) + " spare copies across " + ids.length + (ids.length === 1 ? " card" : " cards") + "\n\n" + lines.join("\n"),
+    primaryLabel: "Copy list"
+  });
+}
+
+function onExtrasClick(e){
+  var t = e.target.closest ? e.target.closest("[data-extra-inc],[data-extra-dec],[data-extra-open],[data-extra-peek]") : null;
+  if (!t) return;
+  if (t.hasAttribute("data-extra-inc")) changeCopies(t.getAttribute("data-extra-inc"), 1);
+  else if (t.hasAttribute("data-extra-dec")) changeCopies(t.getAttribute("data-extra-dec"), -1);
+  else if (t.hasAttribute("data-extra-open")) openCardModal(t.getAttribute("data-extra-open"), ui.extraOrder.slice(), t);
+  else openCardModal(t.getAttribute("data-extra-peek"), extraResultIds.slice(), t);
+}
+
+function wireExtrasControls(){
+  byId("extrasView").addEventListener("click", onExtrasClick);
+  var search = byId("extraSearch");
+  search.addEventListener("input", debounce(function(){ ui.extraQuery = search.value; renderExtraResults(); }, 120));
+  byId("extraSort").addEventListener("change", function(){
+    ui.extraSort = this.value;
+    savePrefs();
+    ui.extraOrder = extraSorted(extraIdsAll(), ui.extraSort, ui.extraSet);
+    renderExtraStacks();
+  });
+  byId("extraSet").addEventListener("change", function(){
+    ui.extraSet = this.value;
+    ui.extraOrder = extraSorted(extraIdsAll(), ui.extraSort, ui.extraSet);
+    renderExtraStacks();
+  });
+  byId("extraCopy").addEventListener("click", openExtraListModal);
+}
+
 /* ===== Page routing =====
    Overview / Collection / Wishlist / Spending are real, addressable pages: the
    URL hash reflects whichever is current (a bare token, so a shared link like
    ...#spending opens straight to it), and browser back/forward moves between
    them. Wishlist reuses the collection markup as a forced "wishlist"
    ownership view; nothing about card state or the save/sync path changes. */
-var TABS = ["overview", "collection", "wishlist", "spending"];
+var TABS = ["overview", "collection", "wishlist", "extras", "spending"];
 
 function tabFromHash(){
   var h = location.hash.replace(/^#\/?/, "");
@@ -2802,6 +3191,7 @@ function setTab(tab, opts){
 
   byId("overviewView").hidden = next !== "overview";
   byId("collectionView").hidden = !inCollection;
+  byId("extrasView").hidden = next !== "extras";
   byId("spendingView").hidden = next !== "spending";
 
   /* In the wishlist page the set accordions give way to one flat list, and
@@ -2824,11 +3214,12 @@ function setTab(tab, opts){
   if (!opts.skipPush) updateHashForTab(next, opts.replace);
   if (next === "overview") renderOverview();
   if (next === "spending") renderSpendingView();
+  if (next === "extras") renderExtrasView();
   if (isWishlist) renderWishlistSummary();
   updateToolbarNote();
   if (prevTab !== next) {
     if (!opts.skipAnim) {
-      playPageTransition(byId(next === "overview" ? "overviewView" : next === "spending" ? "spendingView" : "collectionView"));
+      playPageTransition(byId(next === "overview" ? "overviewView" : next === "spending" ? "spendingView" : next === "extras" ? "extrasView" : "collectionView"));
     }
     if (!opts.keepScroll) window.scrollTo(0, 0);
   }
@@ -2920,7 +3311,15 @@ function importState(data){
     data.wishlist.forEach(function(id){ if (typeof id === "string" && CARD_BY_ID[id] && !state.wishlist.has(id)) { state.wishlist.add(id); added++; } });
   }
   if (Number(data.budget) > 0 && !state.budget) { state.budget = Math.round(Number(data.budget) * 100) / 100; added++; }
+  if (data.extras && typeof data.extras === "object" && !Array.isArray(data.extras)) {
+    var incoming = normalizeExtras(data.extras, state.owned);
+    Object.keys(incoming).forEach(function(id){
+      if (incoming[id] > (state.extras[id] || 0)) { state.extras[id] = incoming[id]; added++; }
+    });
+  }
   if (added) {
+    updateExtrasBadge();
+    if (ui.tab === "extras") renderExtrasView();
     renderAllSetHeads();
     renderTopProgress();
     refreshOpenGrids();
@@ -2947,7 +3346,7 @@ function restoreFromText(text){
 
 function wireBackup(){
   function currentPayload(){
-    return JSON.stringify({ owned: Array.from(state.owned), spending: state.spending, wishlist: Array.from(state.wishlist), budget: state.budget || 0, exportedAt: new Date().toISOString() }, null, 2);
+    return JSON.stringify({ owned: Array.from(state.owned), extras: state.extras, spending: state.spending, wishlist: Array.from(state.wishlist), budget: state.budget || 0, exportedAt: new Date().toISOString() }, null, 2);
   }
   byId("exportBtn").addEventListener("click", function(){
     openTextModal({
@@ -3026,6 +3425,7 @@ function wireControls(){
     onGridClick(e);
   });
   byId("overviewView").addEventListener("click", onOverviewClick);
+  wireExtrasControls();
 
   var searchInput = byId("search");
   searchInput.value = filters.q;
@@ -3117,6 +3517,7 @@ function wireControls(){
 function init(){
   var loaded = loadInitialState();
   state.owned = loaded.owned;
+  state.extras = loaded.extras;
   state.wishlist = loaded.wishlist;
   state.spending = loaded.spending;
   state.budget = loaded.budget;
@@ -3128,6 +3529,7 @@ function init(){
   wireViewTabs();
   wireCardModalTilt();
   updateWishlistBadge();
+  updateExtrasBadge();
   renderAllSetHeads();
   renderTopProgress();
   setLayout(ui.layout);
